@@ -1,4 +1,5 @@
 // Copyright (c) 2026 Thomas Marsa. GPL-3.0-only.
+import { readChessComSnapshot } from './content/chesscom-bridge.js';
 let creatingOffscreen;
 const tabGenerations = new Map();
 
@@ -33,10 +34,28 @@ chrome.action.onClicked.addListener(async (tab) => {
 });
 
 chrome.runtime.onMessage.addListener((message, sender, reply) => {
-  if (!['CC_ANALYZE', 'CC_STOP'].includes(message?.type)) return false;
+  if (!['CC_ANALYZE', 'CC_STOP', 'CC_READ_CHESSCOM'].includes(message?.type)) return false;
   if (sender.id !== chrome.runtime.id || !Number.isInteger(sender.tab?.id)) {
     reply({ ok: false, error: 'Onglet source invalide.' });
     return false;
+  }
+  if (message.type === 'CC_READ_CHESSCOM') {
+    let validOrigin = false;
+    try {
+      const url = new URL(sender.url);
+      validOrigin = url.protocol === 'https:' && (url.hostname === 'chess.com' || url.hostname.endsWith('.chess.com'));
+    } catch { /* Only a real Chess.com document may ask for a MAIN-world read. */ }
+    if (!validOrigin || sender.frameId !== 0 || typeof sender.documentId !== 'string') {
+      reply({ ok: false, error: 'Cette lecture est réservée au plateau Chess.com de l’onglet courant.' });
+      return false;
+    }
+    chrome.scripting.executeScript({
+      target: { tabId: sender.tab.id, documentIds: [sender.documentId] },
+      world: 'MAIN', func: readChessComSnapshot,
+      args: [typeof message.boardSelector === 'string' ? message.boardSelector.slice(0, 1000) : ''],
+    }).then((results) => reply(results[0]?.result || { ok: false, error: 'Position Chess.com indisponible.' }))
+      .catch(() => reply({ ok: false, error: 'Lecture Chess.com interrompue. Rechargez la page puis ouvrez l’extension.' }));
+    return true;
   }
   const tabId = sender.tab.id;
   const generation = (tabGenerations.get(tabId) || 0) + 1;

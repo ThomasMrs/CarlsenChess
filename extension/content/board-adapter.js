@@ -1,5 +1,6 @@
+// Copyright (c) 2026 Thomas Marsa. GPL-3.0-only.
 const BOARD_SELECTORS = [
-  '[data-carlsenchess-board]', 'cg-board', 'chess-board', '.chess-board', '#board', '.board',
+  '[data-carlsenchess-board]', 'cg-board', 'wc-chess-board', 'chess-board', '.chess-board', '#board', '.board',
 ];
 const FEN_ATTRIBUTES = ['data-carlsenchess-fen', 'data-fen', 'data-chess-fen'];
 const BOARD_QUERY = BOARD_SELECTORS.join(',');
@@ -23,7 +24,9 @@ function visibleRectangle(element) {
 /** Find the largest visible, approximately square board. An explicit selector is exclusive. */
 export function findBoard({ boardSelector = '' } = {}) {
   if (typeof document === 'undefined') return null;
-  const selector = boardSelector.trim() || BOARD_QUERY;
+  const onChessCom = document.location?.protocol === 'https:' &&
+    (document.location.hostname === 'chess.com' || document.location.hostname.endsWith('.chess.com'));
+  const selector = boardSelector.trim() || (onChessCom && queryAll(document, 'wc-chess-board').some(visibleRectangle) ? 'wc-chess-board' : BOARD_QUERY);
   const candidates = queryAll(document, selector)
     .map((board) => ({ board, rectangle: visibleRectangle(board) }))
     .filter(({ rectangle }) => rectangle);
@@ -89,7 +92,7 @@ function selectedFen(selector, board) {
 
 function boardOrientation(board) {
   for (let element = board; element; element = element.parentElement) {
-    for (const attribute of ['data-carlsenchess-orientation', 'data-orientation']) {
+    for (const attribute of ['data-carlsenchess-orientation', 'data-orientation', 'orientation']) {
       const value = element.getAttribute(attribute)?.trim().toLowerCase();
       if (value === 'white' || value === 'black') return value;
     }

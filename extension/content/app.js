@@ -1,6 +1,7 @@
 // Copyright (c) 2026 Thomas Marsa. GPL-3.0-only.
 import { Chess } from '../vendor/chess.js';
-import { readPosition } from './board-adapter.js';
+import { readPosition, findBoard } from './board-adapter.js';
+import { createChessComReader, isChessComPage } from './chesscom-client.js';
 import { createPanel, syncSettings, setRunning, setStatus, clearSuggestion } from './panel.js';
 import { createOverlay } from './overlay.js';
 
@@ -45,6 +46,11 @@ export function mount() {
   const overlay = createOverlay(root);
   document.documentElement.append(host);
   const state = { settings: { ...DEFAULTS }, stored: {}, running: false, visible: true, collapsed: false, loading: false, position: null, fingerprint: '', token: 0, timer: null, frame: null, manualFen: '', destroyed: false, board: null, storageQueue: Promise.resolve() };
+  const chesscomReader = isChessComPage() ? createChessComReader({
+    getBoard: () => findBoard({ boardSelector: state.settings.boardSelector }),
+    getSelector: () => state.settings.boardSelector,
+    onChange: () => observePosition(),
+  }) : null;
   const resizeObserver = new ResizeObserver(() => scheduleReflow());
 
   function sendStop() {
@@ -81,13 +87,18 @@ export function mount() {
       // Manual mode is explicit: site metadata must never replace the frozen FEN.
       return { ...position, fen: state.manualFen, source: 'manual', error: state.manualFen ? null : 'Saisissez un FEN complet dans « Connexion au plateau », puis démarrez.' };
     }
+    if (chesscomReader && !position?.fen) return chesscomReader.read(position);
     return position || { fen: '', board: null, source: '', error: 'Aucune position détectée.' };
   }
   function positionKey(position) {
     return `${position.fen || ''}|${position.error || ''}|${orientation(position)}`;
   }
   function updateSource(position) {
-    ui.refs.source.textContent = state.settings.manualMode ? 'FEN manuel' : position.fen ? `${position.fen.split(/\s+/)[1] === 'b' ? 'Trait aux Noirs' : 'Trait aux Blancs'}` : 'Détection auto';
+    const chesscom = position.source?.startsWith('Chess.com');
+    const turn = position.fen?.split(/\s+/)[1] === 'b' ? 'Noirs' : 'Blancs';
+    ui.refs.source.textContent = state.settings.manualMode ? 'FEN manuel'
+      : chesscom ? `Chess.com · ${position.fen ? turn : 'connexion'}`
+      : position.fen ? `Trait aux ${turn}` : 'Détection auto';
     ui.refs.source.title = state.settings.manualMode ? 'La position saisie reste fixe jusqu’à la prochaine pause.' : position.source || 'Lecture de la position sur la page';
   }
   function reportPositionProblem(position) {
@@ -131,7 +142,7 @@ export function mount() {
       if (token !== state.token || !state.running || state.destroyed) return;
       // The page may have moved while the worker was responding, before its observer ran.
       const current = snapshot();
-      if (current.fen !== position.fen) { observePosition(true); return; }
+      if (current.fen !== position.fen || current.board !== position.board) { observePosition(true); return; }
       if (!response?.ok) throw new Error(response?.error || 'Le moteur ne répond pas. Réessayez avec « Actualiser ».');
       const result = response.result;
       const uci = result.selectedMove || result.bestMove;
@@ -162,10 +173,12 @@ export function mount() {
     state.manualFen = state.settings.manualMode ? ui.controls.manualFen.value.trim() : '';
     state.fingerprint = '';
     setRunning(ui, true);
+    chesscomReader?.setActive(!state.settings.manualMode);
     observePosition(true, true);
   }
   function pause(message = 'Analyse en pause. Démarrez pour reprendre.') {
     state.running = false;
+    chesscomReader?.setActive(false);
     invalidate();
     setRunning(ui, false);
     setStatus(ui, message, 'idle');
@@ -212,7 +225,10 @@ export function mount() {
     if (key === 'manualMode') {
       pause(state.settings.manualMode ? 'Mode manuel : collez un FEN complet, puis démarrez.' : 'Lecture automatique sélectionnée. Démarrez pour reprendre.');
       updateSource(state.position || {});
-    } else if (key !== 'manualFen' && state.running) observePosition(true);
+    } else if (key !== 'manualFen' && state.running) {
+      if (key === 'boardSelector') chesscomReader?.refresh();
+      observePosition(true);
+    }
   }
   const observer = new MutationObserver(records => {
     if (records.every(record => record.target === host || host.contains(record.target))) return;
@@ -243,6 +259,7 @@ export function mount() {
     state.destroyed = true;
     observer.disconnect();
     resizeObserver.disconnect();
+    chesscomReader?.destroy();
     clearInterval(interval);
     if (state.frame != null) cancelAnimationFrame(state.frame);
     window.removeEventListener('carlsenchess:toggle', toggle);

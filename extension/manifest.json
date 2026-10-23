@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "CarlsenChess",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "Stockfish local, force réglable et meilleurs coups indiqués directement sur votre plateau.",
   "author": "Thomas Marsa",
   "minimum_chrome_version": "116",

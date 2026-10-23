@@ -7,8 +7,8 @@ const START_FEN = 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1';
 const SECOND_FEN = 'rnbqkbnr/pppp1ppp/8/4p3/4P3/8/PPPP1PPP/RNBQKBNR w KQkq e6 0 2';
 let dom;
 
-function page(html) {
-  dom = new JSDOM(`<!doctype html><html><body>${html}</body></html>`);
+function page(html, url) {
+  dom = new JSDOM(`<!doctype html><html><body>${html}</body></html>`, { url });
   globalThis.document = dom.window.document;
   return document;
 }
@@ -27,6 +27,21 @@ test('findBoard selects the largest visible square board', () => {
   rectangle(doc.querySelector('#wide'), 1100, 200);
   rectangle(doc.querySelector('#hidden'), 800);
   assert.equal(findBoard(), large);
+});
+
+test('Chess.com prefers its visible custom board over unrelated board class containers', () => {
+  const doc = page('<div class="board" id="wrapper"></div><wc-chess-board id="board-analysis-board" orientation="black"></wc-chess-board>', 'https://www.chess.com/analysis');
+  rectangle(doc.querySelector('#wrapper'), 800);
+  const actual = rectangle(doc.querySelector('wc-chess-board'), 576);
+  assert.equal(findBoard(), actual);
+  assert.equal(readPosition().orientation, 'black');
+});
+
+test('a hidden Chess.com custom board does not hide a visible legacy board', () => {
+  const doc = page('<wc-chess-board hidden></wc-chess-board><chess-board id="legacy"></chess-board>', 'https://www.chess.com/play/online');
+  rectangle(doc.querySelector('wc-chess-board'), 800);
+  const legacy = rectangle(doc.querySelector('chess-board'), 480);
+  assert.equal(findBoard(), legacy);
 });
 
 test('an explicit selector is exclusive and safely handles invalid selectors', () => {

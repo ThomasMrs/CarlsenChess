@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>CarlsenChess — Fixture de compatibilité Chess.com</title>
+  <link rel="stylesheet" href="/demo/chesscom-fixture.css">
+  <script type="module" src="/demo/chesscom-fixture.js"></script>
+</head>
+<body>
+  <main>
+    <header>
+      <p class="eyebrow">CARLSENCHESS · COMPATIBILITÉ CHESS.COM</p>
+      <h1>Plateau de test.</h1>
+      <p class="notice">Fixture de test locale — aucune connexion Chess.com.</p>
+      <p>Ce plateau reproduit les classes de pièces et l’API de position d’un plateau Chess.com pour vérifier l’extension.</p>
+    </header>
+    <div class="workspace">
+      <section aria-labelledby="board-heading">
+        <h2 id="board-heading" class="visually-hidden">Plateau de test</h2>
+        <div id="board-container">
+          <wc-chess-board id="board-analysis-board" class="board" role="grid" aria-label="Plateau, vue des Blancs"></wc-chess-board>
+        </div>
+        <p id="position-status" role="status" aria-live="polite"></p>
+        <p class="keyboard-help">Flèches : naviguer · Entrée : sélectionner ou déplacer · Échap : annuler</p>
+      </section>
+      <aside aria-labelledby="controls-heading">
+        <h2 id="controls-heading">Commandes de test</h2>
+        <div class="button-group">
+          <button id="play-e2e4" type="button">Jouer e2 → e4</button>
+          <button id="play-e7e5" type="button">Jouer e7 → e5</button>
+          <button id="reset-game" type="button">Position initiale</button>
+          <button id="flip-board" type="button">Retourner le plateau</button>
+          <button id="replace-board" type="button">Remplacer le nœud du plateau</button>
+        </div>
+        <label for="fen-input">Position FEN complète</label>
+        <textarea id="fen-input" rows="4" spellcheck="false" aria-describedby="fen-help"></textarea>
+        <p id="fen-help">Six champs : pièces, trait, roques, prise en passant, demi-coups et numéro du coup.</p>
+        <button id="load-fen" type="button">Charger la position</button>
+        <p id="fixture-error" role="alert"></p>
+        <details>
+          <summary>Position et API exposée</summary>
+          <p>La FEN est accessible uniquement par la propriété JavaScript <code>board.game.getFEN()</code>, sans attribut DOM de position.</p>
+          <output id="current-fen" aria-label="FEN courante"></output>
+        </details>
+      </aside>
+    </div>
+    <footer>© 2026 Thomas Marsa · GPLv3 · Fixture technique indépendante de Chess.com.</footer>
+  </main>
+</body>
+</html>

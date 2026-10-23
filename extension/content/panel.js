@@ -37,7 +37,7 @@ export function createPanel(root) {
         </div></details>
         <div class="cc-engine" data-ref="engine">Stockfish · calcul sur cet appareil</div>
       </div>
-      <footer class="cc-footer"><span>© 2026 Thomas Marsa</span><span>v1.0</span></footer>
+      <footer class="cc-footer"><span>© 2026 Thomas Marsa</span><span>v1.1</span></footer>
     </section>`;
   root.append(container);
   const refs = Object.fromEntries([...container.querySelectorAll('[data-ref]')].map(el => [el.dataset.ref, el]));

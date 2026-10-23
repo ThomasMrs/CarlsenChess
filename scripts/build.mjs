@@ -17,5 +17,6 @@ await cp('.github/assets', 'dist/CarlsenChess/.github/assets', { recursive: true
 await writeFile('dist/CarlsenChess/SOURCE_CODE.md', `# Code source\n\nCopyright © 2026 Thomas Marsa. GPL-3.0-only.\n\nLes sources de cette version, du moteur et son réseau NNUE sont disponibles à côté du ZIP d’installation :\nhttps://github.com/ThomasMrs/CarlsenChess/releases/tag/v${version}\n\nArchive : CarlsenChess-v${version}-source.zip\n\nLe dépôt contient également vendor-source/ avec les sources originales et les instructions de compilation.\n`);
 execFileSync('zip', ['-q','-r',`CarlsenChess-v${version}.zip`,'CarlsenChess'], { cwd: path.join(root,'dist') });
 const sourceFiles = ['extension','scripts','tests','demo','vendor-source','.github','package.json','package-lock.json','README.md','THIRD_PARTY_NOTICES.md','LICENSE','.gitignore'];
-execFileSync('zip', ['-q','-r',`dist/CarlsenChess-v${version}-source.zip`,...sourceFiles], { cwd: root });
+// The NNUE + C++ source rebuild the engine; the compiled WASM is in the install ZIP.
+execFileSync('zip', ['-q','-r',`dist/CarlsenChess-v${version}-source.zip`,...sourceFiles,'-x','extension/engine/*.wasm'], { cwd: root });
 console.log(`V${version} prête : dist/CarlsenChess et les deux archives ZIP.`);
