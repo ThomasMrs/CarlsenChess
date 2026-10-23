@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#191b1a">
+  <title>CarlsenChess — Plateau de démonstration</title>
+  <link rel="stylesheet" href="./style.css">
+  <script type="module" src="./demo.js"></script>
+</head>
+<body>
+  <header class="site-header">
+    <a class="brand" href="./" aria-label="CarlsenChess, accueil"><span class="brand-mark" aria-hidden="true">C<span>♞</span></span><span>Carlsen<span class="brand-light">Chess</span></span></a>
+    <span class="environment"><span aria-hidden="true"></span> Espace d’entraînement</span>
+  </header>
+
+  <main>
+    <section class="introduction" aria-labelledby="page-title">
+      <div><p class="eyebrow">VOTRE PROCHAIN COUP COMMENCE ICI</p><h1 id="page-title">Voyez le jeu<br><em>un coup plus loin.</em></h1></div>
+      <p class="intro-copy">Un plateau pour explorer vos idées, tester l’extension et comprendre chaque position. Choisissez une pièce, puis sa case d’arrivée.</p>
+    </section>
+
+    <div class="workspace">
+      <section class="board-section" aria-label="Plateau d’échecs interactif">
+        <div class="player-strip"><div class="player-avatar" aria-hidden="true">♚</div><div><strong id="top-player-name">Pièces noires</strong><span>Partie locale · deux joueurs</span></div><span class="player-badge" id="top-player-status">En attente</span></div>
+        <div class="board-frame">
+          <div id="board" class="chess-board" role="grid" aria-label="Plateau, vue des Blancs. Flèches pour naviguer, Entrée pour jouer." data-carlsenchess-board data-carlsenchess-orientation="white" data-carlsenchess-fen="rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"></div>
+        </div>
+        <div class="player-strip bottom-player"><div class="player-avatar light-avatar" aria-hidden="true">♔</div><div><strong id="bottom-player-name">Pièces blanches</strong><span id="board-hint">Sélectionnez une pièce blanche pour commencer.</span></div><span class="player-badge active" id="bottom-player-status">À vous</span></div>
+        <p class="keyboard-hint"><kbd>↑</kbd><kbd>↓</kbd><kbd>←</kbd><kbd>→</kbd> Naviguer <span>·</span> <kbd>Entrée</kbd> Sélectionner <span>·</span> <kbd>Échap</kbd> Annuler</p>
+      </section>
+
+      <aside class="game-panel" aria-labelledby="game-heading">
+        <div class="panel-heading"><div><p class="eyebrow">LE PLATEAU D’ESSAI</p><h2 id="game-heading">Votre laboratoire.</h2></div><span class="live-label">LOCAL</span></div>
+        <div class="game-status" role="status" aria-live="polite"><span class="status-indicator" aria-hidden="true"></span><div><strong id="game-status">Aux Blancs de jouer</strong><p id="game-detail">Toutes les pièces sont en place.</p></div></div>
+        <div class="board-actions">
+          <button id="new-game" class="button primary" type="button">Nouvelle partie <span aria-hidden="true">↗</span></button>
+          <button id="flip-board" class="button secondary" type="button" aria-label="Retourner le plateau">↻ <span>Retourner</span></button>
+          <button id="undo-move" class="button secondary" type="button" disabled>↶ <span>Annuler le coup</span></button>
+        </div>
+
+        <div class="move-heading"><h3>La partie</h3><span id="move-count">0 coup</span></div>
+        <div class="moves-scroll"><p id="history-empty" class="empty-history">Le premier coup vous appartient.</p><ol id="move-history" class="move-history" aria-label="Historique des coups"></ol></div>
+
+        <button id="load-puzzle" class="puzzle-button" type="button"><span class="puzzle-icon" aria-hidden="true">♕</span><span><strong>Un mat en un coup</strong><small>Essayez une position tactique</small></span><span aria-hidden="true">→</span></button>
+
+        <details class="position-details"><summary>Explorer la position FEN <span aria-hidden="true">+</span></summary><label for="fen-input">Position complète</label><textarea id="fen-input" rows="3" spellcheck="false" autocomplete="off" aria-describedby="fen-help"></textarea><p id="fen-help">Les six champs décrivent le plateau, le trait et les droits de jeu.</p><button id="load-fen" class="button secondary small" type="button">Charger la position</button><p id="fen-error" class="error-message" role="alert"></p></details>
+        <p class="extension-note"><span aria-hidden="true">◇</span> Activez CarlsenChess sur cette page pour afficher ses suggestions directement sur le plateau.</p>
+      </aside>
+    </div>
+  </main>
+
+  <footer><span>© 2026 Thomas Marsa · GPLv3.</span><span>CarlsenChess <span class="footer-dot">·</span> Démonstration v1</span></footer>
+
+  <dialog id="promotion-dialog" aria-labelledby="promotion-title"><form method="dialog"><p class="eyebrow">UN NOUVEAU POTENTIEL</p><h2 id="promotion-title">Promouvoir le pion</h2><p>Choisissez la pièce qui poursuit la partie.</p><div class="promotion-options"><button value="q" aria-label="Promouvoir en dame">♕<span>Dame</span></button><button value="r" aria-label="Promouvoir en tour">♖<span>Tour</span></button><button value="b" aria-label="Promouvoir en fou">♗<span>Fou</span></button><button value="n" aria-label="Promouvoir en cavalier">♘<span>Cavalier</span></button></div><button class="button secondary small" value="cancel">Annuler</button></form></dialog>
+  <svg class="piece-definitions" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><defs>
+    <symbol id="piece-p" viewBox="0 0 64 64"><circle cx="32" cy="17" r="8"/><path d="M25 27h14c-3 5-3 11 1 16l5 6H19l5-6c4-5 4-11 1-16Z"/><path d="M18 50h28v5H18z"/></symbol>
+    <symbol id="piece-r" viewBox="0 0 64 64"><path d="M17 12h7v7h5v-7h6v7h5v-7h7v15l-6 5 2 16H21l2-16-6-5Z"/><path d="M18 49h28v6H18zM23 30h18"/></symbol>
+    <symbol id="piece-n" viewBox="0 0 64 64"><path d="m20 13 12-3 12 9 3 12-7 16H20l7-15-8 5-7-7 10-12-2-5Z"/><path d="M18 48h29v7H18zM28 17l4 3M16 29l6-1M38 25c2 8-3 13-6 16"/></symbol>
+    <symbol id="piece-b" viewBox="0 0 64 64"><path d="M32 8c-6 6-13 10-13 18 0 6 5 9 10 10l-8 11h22l-8-11c5-1 10-4 10-10 0-8-7-12-13-18Z"/><path d="M32 15v13M18 49h28v6H18zM26 37h12"/></symbol>
+    <symbol id="piece-q" viewBox="0 0 64 64"><path d="m15 21 8 5 9-12 9 12 8-5-7 23H22Z"/><circle cx="14" cy="18" r="3"/><circle cx="32" cy="10" r="3"/><circle cx="50" cy="18" r="3"/><path d="M20 45h24v4H20zM17 50h30v5H17z"/></symbol>
+    <symbol id="piece-k" viewBox="0 0 64 64"><path d="M32 6v13M26 11h12M32 19c-15-10-21 10-10 19l2 8h16l2-8c11-9 5-29-10-19Z"/><path d="M24 38h16M21 47h22v3H21zM18 51h28v5H18zM32 21v14"/></symbol>
+  </defs></svg>
+</body>
+</html>

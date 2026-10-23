@@ -1,0 +1,30 @@
+name: Tests
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  unit:
+    name: Node 22 · tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Récupérer les sources
+        uses: actions/checkout@v7.0.1
+      - name: Installer Node.js 22
+        uses: actions/setup-node@v7.1.0
+        with:
+          node-version: '22'
+          cache: npm
+      - name: Installer les dépendances épinglées
+        run: npm ci
+      - name: Préparer le moteur et les licences
+        run: npm run vendor
+      - name: Générer les icônes
+        run: node scripts/icons.mjs
+      - name: Exécuter les tests
+        run: npm test
