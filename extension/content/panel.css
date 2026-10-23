@@ -104,6 +104,7 @@ input[type='range'] { accent-color: var(--cc-copper); width: 100%; margin: 8px 0
 .cc-inline-field { flex-direction: row; align-items: center; justify-content: space-between; gap: 8px; }
 .cc-inline-field > label { flex: none; }
 .cc-inline-field select { font-size: 10px; width: 128px; padding-left: 6px; }
+.cc-auto-note { margin: -8px 0 16px; }
 .cc-advanced { border-top: 1px solid var(--cc-line); }
 .cc-advanced summary { list-style: none; display: flex; align-items: center; justify-content: space-between; gap: 8px; cursor: pointer; color: var(--cc-muted); padding: 12px 0; font-size: 11px; }
 .cc-advanced summary::-webkit-details-marker { display: none; }

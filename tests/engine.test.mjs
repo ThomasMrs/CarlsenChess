@@ -22,7 +22,7 @@ class NodeUciWorker {
 }
 
 test('actual full Stockfish finds mate, supports target strength, cancels cleanly', {timeout:60000}, async () => {
-  const client = new EngineClient(()=>new NodeUciWorker());
+  const client = new EngineClient(()=>new NodeUciWorker(),()=>0);
   try {
     await client.ready;
     assert.match(client.name,/Stockfish/);
@@ -31,15 +31,74 @@ test('actual full Stockfish finds mate, supports target strength, cancels cleanl
     const board=new Chess(fen);
     board.move({from:result.bestMove.slice(0,2),to:result.bestMove.slice(2,4)});
     assert.equal(board.isCheckmate(),true);
+    assert.equal(result.selectedMove,result.bestMove);
+    assert.equal(result.strengthMode,'max');
+    assert.equal(result.targetElo,'max');
     const limited=await client.analyze(new Chess().fen(),{elo:1600,movetime:200,humanize:true});
     assert.equal(limited.eloLimited,true);
+    assert.equal(limited.strengthMode,'native');
+    assert.equal(limited.targetElo,1500);
     assert.doesNotThrow(()=>new Chess().move({from:limited.selectedMove.slice(0,2),to:limited.selectedMove.slice(2,4)}));
+    for (const elo of [500,1000]) {
+      const beginner=await client.analyze(new Chess().fen(),{elo,movetime:200,humanize:false});
+      assert.equal(beginner.strengthMode,'approximate');
+      assert.equal(beginner.targetElo,elo);
+      assert.equal(beginner.eloLimited,true);
+      assert.notEqual(beginner.selectedMove,beginner.bestMove);
+      assert.doesNotThrow(()=>new Chess().move({from:beginner.selectedMove.slice(0,2),to:beginner.selectedMove.slice(2,4)}));
+    }
     const cancelled=client.analyze(new Chess().fen(),{movetime:2500});
     await new Promise(resolve=>setTimeout(resolve,100));
     client.stop();
     assert.equal((await cancelled).cancelled,true);
     const next=await client.analyze(fen,{movetime:200});
     assert.ok(next.bestMove);
+    const restored=new Chess(fen);
+    restored.move({from:next.selectedMove.slice(0,2),to:next.selectedMove.slice(2,4)});
+    assert.equal(restored.isCheckmate(),true);
     assert.equal(client.current,null);
+  } finally {client.dispose();}
+});
+
+class FakeUciWorker {
+  commands=[];
+  postMessage(command) {
+    this.commands.push(command);
+    queueMicrotask(()=>{
+      const emit=line=>this.onmessage?.({data:line});
+      if (command === 'uci') {
+        emit('option name UCI_Elo type spin default 1320 min 1320 max 3190');
+        emit('uciok');
+      } else if (command === 'isready') emit('readyok');
+      else if (command.startsWith('go ')) {
+        emit('info depth 3 multipv 1 score cp 30 pv e2e4 e7e5');
+        emit('info depth 3 multipv 2 score cp -30 pv d2d4 d7d5');
+        emit('bestmove e2e4');
+      }
+    });
+  }
+  terminate() {}
+}
+
+test('engine applies separate beginner, native and maximum settings and restores full skill', async () => {
+  const worker=new FakeUciWorker();
+  const client=new EngineClient(()=>worker,()=>.99);
+  try {
+    await client.ready;
+    for (const [elo,mode,skill,go] of [[500,'approximate',0,'go movetime 200 depth 3'],
+      [1000,'approximate',4,'go movetime 350 depth 6'],[1500,'native',20,'go movetime 1200'],
+      [3000,'native',20,'go movetime 1200'],['max','max',20,'go movetime 1200']]) {
+      const offset=worker.commands.length;
+      const result=await client.analyze(new Chess().fen(),{elo,movetime:1200,humanize:false});
+      const commands=worker.commands.slice(offset);
+      assert.equal(result.strengthMode,mode);
+      assert.equal(result.targetElo,elo);
+      assert.ok(commands.includes(`setoption name Skill Level value ${skill}`));
+      assert.ok(commands.includes(`setoption name UCI_LimitStrength value ${mode === 'native'}`));
+      assert.ok(commands.includes(go));
+      if (mode === 'native') assert.ok(commands.includes(`setoption name UCI_Elo value ${elo}`));
+      else assert.equal(commands.some(command=>command.startsWith('setoption name UCI_Elo')),false);
+      assert.equal(result.selectedMove,mode === 'approximate' ? 'd2d4' : 'e2e4');
+    }
   } finally {client.dispose();}
 });

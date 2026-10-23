@@ -2,16 +2,17 @@
 import { Chess } from '../vendor/chess.js';
 import { readPosition, findBoard } from './board-adapter.js';
 import { createChessComReader, isChessComPage } from './chesscom-client.js';
+import { createAutoPlayer } from './autoplay.js';
 import { createPanel, syncSettings, setRunning, setStatus, clearSuggestion } from './panel.js';
 import { createOverlay } from './overlay.js';
 
-const DEFAULTS = Object.freeze({ strength: 'max', humanize: false, movetime: 1200, orientation: 'auto', boardSelector: '', fenSelector: '', manualFen: '', manualMode: false });
-const SITE_KEYS = ['boardSelector', 'fenSelector', 'manualFen', 'manualMode'];
+const DEFAULTS = Object.freeze({ strength: 'max', humanize: false, movetime: 1200, orientation: 'auto', boardSelector: '', fenSelector: '', manualFen: '', manualMode: false, autoplay: false, playerColor: 'w' });
+const SITE_KEYS = ['boardSelector', 'fenSelector', 'manualFen', 'manualMode', 'playerColor'];
 const GLOBAL_KEYS = ['strength', 'humanize', 'movetime', 'orientation'];
 
 function normalizeSettings(raw = {}) {
-  const strength = raw.strength === 'max' || raw.strength == null ? 'max' : Math.round(Math.min(3190, Math.max(1320, Number(raw.strength) || 2000)) / 10) * 10;
-  return { ...DEFAULTS, strength, humanize: raw.humanize === true, movetime: [400, 1200, 2500].includes(Number(raw.movetime)) ? Number(raw.movetime) : 1200, orientation: ['white', 'black', 'auto'].includes(raw.orientation) ? raw.orientation : 'auto', boardSelector: String(raw.boardSelector || '').trim(), fenSelector: String(raw.fenSelector || '').trim(), manualFen: String(raw.manualFen || '').trim(), manualMode: raw.manualMode === true };
+  const strength = raw.strength === 'max' || raw.strength == null ? 'max' : Math.round(Math.min(3000, Math.max(500, Number(raw.strength) || 2000)) / 500) * 500;
+  return { ...DEFAULTS, strength, humanize: raw.humanize === true, movetime: [400, 1200, 2500].includes(Number(raw.movetime)) ? Number(raw.movetime) : 1200, orientation: ['white', 'black', 'auto'].includes(raw.orientation) ? raw.orientation : 'auto', boardSelector: String(raw.boardSelector || '').trim(), fenSelector: String(raw.fenSelector || '').trim(), manualFen: String(raw.manualFen || '').trim(), manualMode: raw.manualMode === true, autoplay: raw.autoplay === true, playerColor: raw.playerColor === 'b' ? 'b' : 'w' };
 }
 
 function validateFen(fen) {
@@ -42,7 +43,7 @@ export function mount() {
   host.id = 'carlsenchess-root';
   host.style.cssText = "all:initial;position:fixed;inset:0;display:block;pointer-events:none;z-index:2147483600;isolation:isolate;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;font-size:13px;line-height:1.5;color-scheme:dark;";
   const root = host.attachShadow({ mode: 'open' });
-  const ui = createPanel(root);
+  const ui = createPanel(root, { autoplaySupported: isChessComPage() });
   const overlay = createOverlay(root);
   document.documentElement.append(host);
   const state = { settings: { ...DEFAULTS }, stored: {}, running: false, visible: true, collapsed: false, loading: false, position: null, fingerprint: '', token: 0, timer: null, frame: null, manualFen: '', destroyed: false, board: null, storageQueue: Promise.resolve() };
@@ -52,11 +53,30 @@ export function mount() {
     onChange: () => observePosition(),
   }) : null;
   const resizeObserver = new ResizeObserver(() => scheduleReflow());
+  const autoPlayer = createAutoPlayer({
+    getState: () => {
+      const position = snapshot();
+      return { ...position, enabled: state.running && state.settings.autoplay && !!chesscomReader,
+        visible: document.visibilityState !== 'hidden', manual: state.settings.manualMode,
+        playerColor: state.settings.playerColor, boardSelector: state.settings.boardSelector,
+        orientation: orientation(position) };
+    },
+    authorize: token => token ? host.setAttribute('data-cc-play-token', token) : host.removeAttribute('data-cc-play-token'),
+    play: ({ board, ...request }) => chrome.runtime.sendMessage({ type: 'CC_PLAY_CHESSCOM', ...request }),
+    onPending: () => setStatus(ui, 'Jeu automatique : exécution du coup…', 'loading'),
+    onError: error => {
+      state.settings.autoplay = false;
+      ui.controls.autoplay.checked = false;
+      autoPlayer.cancel();
+      setStatus(ui, `${error} Jeu automatique arrêté.`, 'error');
+    },
+  });
 
   function sendStop() {
     try { Promise.resolve(chrome.runtime.sendMessage({ type: 'CC_STOP' })).catch(() => {}); } catch { /* A reloaded extension can invalidate an older content script. */ }
   }
-  function invalidate() {
+  function invalidate(keepExecutingMove = false) {
+    if (!keepExecutingMove) autoPlayer.cancel();
     state.token += 1;
     state.loading = false;
     clearTimeout(state.timer);
@@ -113,6 +133,7 @@ export function mount() {
   function observePosition(force = false, immediate = false) {
     if (!state.running || state.destroyed) return;
     const next = snapshot();
+    autoPlayer.observe(next.fen, next.board);
     watchBoard(next.board);
     const nextKey = positionKey(next);
     const changed = nextKey !== state.fingerprint || next.board !== state.position?.board;
@@ -120,7 +141,7 @@ export function mount() {
     updateSource(next);
     if (!force && !changed) { scheduleReflow(); return; }
     state.fingerprint = nextKey;
-    invalidate();
+    invalidate(!force && autoPlayer.isExecuting());
     if (reportPositionProblem(next)) return;
     setStatus(ui, 'Position reçue. Préparation du calcul…', 'loading');
     state.timer = setTimeout(() => { state.timer = null; analyze(next); }, immediate ? 0 : 180);
@@ -131,6 +152,10 @@ export function mount() {
     try { chess = validateFen(position.fen); } catch (error) { setStatus(ui, error.message, 'error'); return; }
     if (chess.isGameOver()) {
       setStatus(ui, chess.isCheckmate() ? 'Échec et mat. Aucun coup à jouer.' : 'Cette position est terminée. Aucun coup à proposer.', 'complete');
+      return;
+    }
+    if (state.settings.autoplay && chess.turn() !== state.settings.playerColor) {
+      setStatus(ui, `Jeu automatique : attente du coup adverse. Vous jouez les ${state.settings.playerColor === 'w' ? 'Blancs' : 'Noirs'}.`, 'waiting');
       return;
     }
     const token = ++state.token;
@@ -159,6 +184,9 @@ export function mount() {
       state.position = { ...current, board };
       overlay.show(board, move, orientation(current));
       setStatus(ui, board ? `${chess.turn() === 'w' ? 'Blancs' : 'Noirs'} : suivez la flèche sur le plateau.${state.settings.humanize ? ' Choix varié activé.' : ''}` : 'Coup calculé. Reliez un plateau pour afficher la flèche.', 'ready');
+      if (autoPlayer.schedule({ fen: position.fen, uci, board })) {
+        setStatus(ui, 'Jeu automatique : coup prêt. Pause pour arrêter.', 'ready');
+      }
     } catch (error) {
       if (token !== state.token || !state.running || state.destroyed) return;
       overlay.clear();
@@ -185,6 +213,8 @@ export function mount() {
   }
   function close() {
     pause();
+    state.settings.autoplay = false;
+    ui.controls.autoplay.checked = false;
     state.visible = false;
     state.collapsed = false;
     ui.panel.hidden = true;
@@ -214,15 +244,26 @@ export function mount() {
     const c = ui.controls;
     if (key === 'strengthMode') state.settings.strength = c.strengthMode.value === 'max' ? 'max' : Number(c.strength.value);
     else if (key === 'strength') state.settings.strength = Number(c.strength.value);
-    else if (key === 'humanize' || key === 'manualMode') state.settings[key] = c[key].checked;
+    else if (key === 'humanize' || key === 'manualMode' || key === 'autoplay') state.settings[key] = c[key].checked;
     else if (key === 'movetime') state.settings.movetime = Number(c.movetime.value);
     else state.settings[key] = c[key].value.trim();
     state.settings = normalizeSettings(state.settings);
+    if (key === 'autoplay') {
+      autoPlayer.reset();
+      if (!chesscomReader || state.settings.manualMode || document.visibilityState === 'hidden') {
+        state.settings.autoplay = false;
+        c.autoplay.checked = false;
+        setStatus(ui, 'Le jeu automatique nécessite le plateau Chess.com visible et la lecture automatique de la position.', 'waiting');
+        return;
+      }
+    }
     ui.refs.eloField.hidden = state.settings.strength === 'max';
     ui.refs.eloValue.value = c.strength.value;
     ui.refs.manualField.hidden = !state.settings.manualMode;
     persist();
     if (key === 'manualMode') {
+      state.settings.autoplay = false;
+      c.autoplay.checked = false;
       pause(state.settings.manualMode ? 'Mode manuel : collez un FEN complet, puis démarrez.' : 'Lecture automatique sélectionnée. Démarrez pour reprendre.');
       updateSource(state.position || {});
     } else if (key !== 'manualFen' && state.running) {
@@ -252,6 +293,18 @@ export function mount() {
   window.addEventListener('resize', scheduleReflow, { passive: true });
   window.addEventListener('scroll', scheduleReflow, { passive: true, capture: true });
   root.addEventListener('keydown', onEscape);
+  const onVisibility = () => {
+    if (document.visibilityState !== 'hidden') {
+      if (state.running) observePosition(true);
+      return;
+    }
+    if (!state.settings.autoplay) return;
+    state.settings.autoplay = false;
+    ui.controls.autoplay.checked = false;
+    autoPlayer.cancel();
+    setStatus(ui, 'Jeu automatique arrêté : onglet masqué.', 'idle');
+  };
+  document.addEventListener('visibilitychange', onVisibility);
 
   host.carlsenChessDestroy = () => {
     if (state.destroyed) return;
@@ -260,17 +313,19 @@ export function mount() {
     observer.disconnect();
     resizeObserver.disconnect();
     chesscomReader?.destroy();
+    autoPlayer.destroy();
     clearInterval(interval);
     if (state.frame != null) cancelAnimationFrame(state.frame);
     window.removeEventListener('carlsenchess:toggle', toggle);
     window.removeEventListener('resize', scheduleReflow);
     window.removeEventListener('scroll', scheduleReflow, true);
+    document.removeEventListener('visibilitychange', onVisibility);
     host.remove();
   };
   chrome.storage.local.get('ccSettings').then(({ ccSettings = {} }) => {
     if (state.destroyed) return;
     const site = ccSettings.sites?.[location.origin] || {};
-    state.settings = normalizeSettings({ ...ccSettings, ...site });
+    state.settings = normalizeSettings({ ...ccSettings, ...site, autoplay: false });
     syncSettings(ui, state.settings);
     updateSource({});
   }).catch(() => setStatus(ui, 'Impossible de charger les réglages. Les valeurs par défaut sont actives.', 'error'));

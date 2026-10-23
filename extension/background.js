@@ -1,7 +1,10 @@
 // Copyright (c) 2026 Thomas Marsa. GPL-3.0-only.
 import { readChessComSnapshot } from './content/chesscom-bridge.js';
+import { playChessComMove } from './content/chesscom-play.js';
+import { validatePosition, isLegalUci } from './core/analysis.js';
 let creatingOffscreen;
 const tabGenerations = new Map();
+const activePlays = new Set();
 
 async function ensureOffscreen() {
   if (creatingOffscreen) return creatingOffscreen;
@@ -34,12 +37,12 @@ chrome.action.onClicked.addListener(async (tab) => {
 });
 
 chrome.runtime.onMessage.addListener((message, sender, reply) => {
-  if (!['CC_ANALYZE', 'CC_STOP', 'CC_READ_CHESSCOM'].includes(message?.type)) return false;
+  if (!['CC_ANALYZE', 'CC_STOP', 'CC_READ_CHESSCOM', 'CC_PLAY_CHESSCOM'].includes(message?.type)) return false;
   if (sender.id !== chrome.runtime.id || !Number.isInteger(sender.tab?.id)) {
     reply({ ok: false, error: 'Onglet source invalide.' });
     return false;
   }
-  if (message.type === 'CC_READ_CHESSCOM') {
+  if (message.type === 'CC_READ_CHESSCOM' || message.type === 'CC_PLAY_CHESSCOM') {
     let validOrigin = false;
     try {
       const url = new URL(sender.url);
@@ -48,6 +51,32 @@ chrome.runtime.onMessage.addListener((message, sender, reply) => {
     if (!validOrigin || sender.frameId !== 0 || typeof sender.documentId !== 'string') {
       reply({ ok: false, error: 'Cette lecture est réservée au plateau Chess.com de l’onglet courant.' });
       return false;
+    }
+    if (message.type === 'CC_PLAY_CHESSCOM') {
+      try {
+        const board = validatePosition(message.fen);
+        if (!['w', 'b'].includes(message.playerColor) || board.turn() !== message.playerColor
+          || board.isGameOver() || !isLegalUci(board, message.uci)
+          || !['white', 'black'].includes(message.orientation)
+          || typeof message.token !== 'string' || !message.token || message.token.length > 128) {
+          throw new Error('Coup automatique invalide ou position terminée.');
+        }
+        if (activePlays.has(sender.documentId)) throw new Error('Un coup automatique est déjà en cours.');
+        activePlays.add(sender.documentId);
+        chrome.scripting.executeScript({
+          target: { tabId: sender.tab.id, documentIds: [sender.documentId] },
+          world: 'MAIN', func: playChessComMove,
+          args: [{ expectedFen: message.fen, uci: message.uci, color: message.playerColor,
+            orientation: message.orientation, token: message.token,
+            boardSelector: typeof message.boardSelector === 'string' ? message.boardSelector.slice(0, 1000) : '' }],
+        }).then(results => reply(results[0]?.result || { ok: false, played: false, error: 'Le coup n’a pas été confirmé.' }))
+          .catch(() => reply({ ok: false, played: false, error: 'Le coup automatique a été interrompu. Vérifiez le plateau.' }))
+          .finally(() => activePlays.delete(sender.documentId));
+        return true;
+      } catch (error) {
+        reply({ ok: false, played: false, error: error.message });
+        return false;
+      }
     }
     chrome.scripting.executeScript({
       target: { tabId: sender.tab.id, documentIds: [sender.documentId] },

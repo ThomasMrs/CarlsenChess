@@ -71,7 +71,7 @@ try {
   await host.getByRole('button',{name:'Mettre en pause',exact:true}).click();
   assert.equal(await host.locator('.cc-overlay').evaluate(el=>getComputedStyle(el).display),'none');
   await host.locator('#cc-strength-mode').selectOption('target');
-  await host.locator('#cc-strength').fill('1600');
+  await host.locator('#cc-strength').fill('1500');
   await host.locator('#cc-strength').dispatchEvent('change');
   await host.locator('#cc-humanize').check();
   await page.locator('#new-game').click();
@@ -83,7 +83,7 @@ try {
   await host.locator('[data-ref="source"]').filter({hasText:'Trait aux Noirs'}).waitFor({timeout:10000});
   await host.locator('[data-ref="badge"]').filter({hasText:'Coup trouvé'}).waitFor({timeout:15000});
   assert.notEqual(await page.locator('#board').getAttribute('data-carlsenchess-fen'),before);
-  steps.push('Elo1600, humanisation, nouvelle position après e2-e4, réponse noire');
+  steps.push('Elo1500, humanisation, nouvelle position après e2-e4, réponse noire');
   // Closing while a request is in flight must suppress all later drawing.
   await host.getByRole('button',{name:'Réanalyser la position',exact:true}).click();
   await host.getByRole('button',{name:'Fermer et arrêter l’analyse',exact:true}).click();

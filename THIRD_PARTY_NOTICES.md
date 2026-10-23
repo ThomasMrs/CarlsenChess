@@ -23,7 +23,7 @@ https://github.com/official-stockfish/Stockfish
 
 Les fichiers du moteur sont distribués sans modification. Les sources correspondantes sont épinglées au tag `v19.0.1`, commit `0d5dd7944f88c817c07a26bc4fb1905d5f9c46d6` du portage Stockfish.js. Elles sont conservées dans `vendor-source/stockfish-19.0.1-source.tar.gz`. Le réseau neuronal `vendor-source/nn-1a298aa575a0.nnue` et les instructions `vendor-source/BUILD.md` accompagnent ces sources ; ces instructions indiquent la chaîne de compilation et la commande de reconstruction.
 
-L’archive `CarlsenChess-v1.1.0-source.zip` contient les sources du projet, celles du moteur et ses fichiers nécessaires à la reconstruction. Lors d’une redistribution de l’archive installable, fournir aussi cette archive de sources et les licences, ou un accès équivalent aux sources correspondantes conformément à la GPL. Le paquet npm épinglé et `package-lock.json` identifient les binaires utilisés par le build. L’adaptation Chess.com de CarlsenChess 1.1.0 ne modifie ni ces fichiers du moteur ni la version Stockfish.js 19.0.1 embarquée.
+L’archive `CarlsenChess-v1.2.0-source.zip` contient les sources du projet, celles du moteur et ses fichiers nécessaires à la reconstruction. Lors d’une redistribution de l’archive installable, fournir aussi cette archive de sources et les licences, ou un accès équivalent aux sources correspondantes conformément à la GPL. Le paquet npm épinglé et `package-lock.json` identifient les binaires utilisés par le build. Le jeu automatique et les paliers de force de CarlsenChess 1.2.0 ne modifient ni ces fichiers du moteur ni la version Stockfish.js 19.0.1 embarquée.
 
 ## chess.js 1.4.0
 

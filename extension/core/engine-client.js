@@ -1,14 +1,15 @@
 // Copyright (c) 2026 Thomas Marsa. GPL-3.0-only.
-import { normalizeSettings, parseInfo, validatePosition, isLegalUci, selectMove } from './analysis.js';
+import { normalizeSettings, strengthProfile, parseInfo, validatePosition, isLegalUci, selectMove } from './analysis.js';
 
 export class EngineClient {
-  constructor(createWorker) {
+  constructor(createWorker, random = Math.random) {
     this.worker = createWorker();
     this.waiters = [];
     this.current = null;
     this.dead = false;
     this.name = 'Stockfish 19';
     this.eloRange = { min: 1320, max: 3190 };
+    this.random = random;
     this.worker.onmessage = (event) => {
       for (const line of String(event.data).split('\n')) this.handleLine(line.trim());
     };
@@ -68,32 +69,37 @@ export class EngineClient {
         return;
       }
       search.resolve({ bestMove, ponder, lines,
-        selectedMove: selectMove(lines, bestMove, search.settings),
-        engineName: this.name, eloLimited: search.settings.elo !== 'max' });
+        selectedMove: selectMove(lines, bestMove, search.settings, this.random, search.board),
+        engineName: this.name, eloLimited: search.settings.elo !== 'max',
+        strengthMode: search.profile.strengthMode, targetElo: search.profile.targetElo });
     }
   }
 
   async analyze(fen, rawSettings = {}, isCancelled = () => false) {
     const board = validatePosition(fen);
-    if (board.isGameOver()) return { bestMove: null, selectedMove: null, lines: [], engineName: this.name, gameOver: true };
     const settings = normalizeSettings(rawSettings);
+    if (board.isGameOver()) return { bestMove: null, selectedMove: null, lines: [], engineName: this.name, gameOver: true,
+      strengthMode: strengthProfile(settings).strengthMode, targetElo: settings.elo };
     await this.ready;
     if (this.dead) throw new Error('Le moteur est arrêté. Relancez l’analyse.');
     if (isCancelled()) return { cancelled: true };
     if (this.current) throw new Error('Une analyse est déjà en cours.');
-    this.send(`setoption name UCI_LimitStrength value ${settings.elo === 'max' ? 'false' : 'true'}`);
-    if (settings.elo !== 'max') this.send(`setoption name UCI_Elo value ${Math.max(this.eloRange.min, Math.min(this.eloRange.max, settings.elo))}`);
-    this.send('setoption name MultiPV value 3');
+    const profile = strengthProfile(settings, this.eloRange);
+    this.send(`setoption name UCI_LimitStrength value ${profile.strengthMode === 'native' ? 'true' : 'false'}`);
+    if (profile.engineElo !== null) this.send(`setoption name UCI_Elo value ${profile.engineElo}`);
+    // Restore full skill after a beginner search; UCI_Elo controls native targets.
+    this.send(`setoption name Skill Level value ${profile.skillLevel}`);
+    this.send(`setoption name MultiPV value ${profile.multiPv}`);
     // Barrier guarantees all options are applied before starting the next search.
     const synchronized = this.waitFor((line) => line === 'readyok', 10000);
     this.send('isready');
     await synchronized;
     if (isCancelled()) return { cancelled: true };
     return new Promise((resolve, reject) => {
-      this.current = { board, settings, lines: new Map(), resolve, reject, isCancelled, cancelled: false,
-        timer: setTimeout(() => this.dispose(new Error('Analyse interrompue après expiration du délai.')), settings.movetime + 15000) };
+      this.current = { board, settings, profile, lines: new Map(), resolve, reject, isCancelled, cancelled: false,
+        timer: setTimeout(() => this.dispose(new Error('Analyse interrompue après expiration du délai.')), profile.movetime + 15000) };
       this.send(`position fen ${board.fen()}`);
-      this.send(`go movetime ${settings.movetime}`);
+      this.send(`go movetime ${profile.movetime}${profile.searchDepth ? ` depth ${profile.searchDepth}` : ''}`);
     });
   }
 

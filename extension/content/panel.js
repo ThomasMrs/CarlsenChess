@@ -1,7 +1,7 @@
 // Copyright (c) 2026 Thomas Marsa. GPL-3.0-only.
 const KNIGHT = `<svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="m8 4 6-2 1 4 4 5-2 5H9l-2 4h12v2H5v-3l5-8-4 2-3-2 5-7Z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/><path d="M12 7h.01" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/></svg>`;
 
-export function createPanel(root) {
+export function createPanel(root, { autoplaySupported = false } = {}) {
   const sheet = document.createElement('link');
   sheet.rel = 'stylesheet';
   sheet.href = chrome.runtime.getURL('content/panel.css');
@@ -25,8 +25,11 @@ export function createPanel(root) {
         <div class="cc-actions"><button type="button" class="cc-primary" data-action="start">Démarrer</button><button type="button" class="cc-secondary" data-action="refresh" disabled aria-label="Réanalyser la position" title="Réanalyser la position"><svg viewBox="0 0 20 20" fill="none" aria-hidden="true"><path d="M16 8a6 6 0 1 0-.5 5M16 3v5h-5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></button></div>
         <div class="cc-divider"></div>
         <div class="cc-field"><label for="cc-strength-mode">Force du moteur</label><select id="cc-strength-mode" data-setting="strengthMode"><option value="max">Puissance maximale</option><option value="target">Elo cible</option></select></div>
-        <div class="cc-elo-field" data-ref="eloField" hidden><div class="cc-range-label"><label for="cc-strength">Elo cible</label><output for="cc-strength" data-ref="eloValue">2000</output></div><input id="cc-strength" data-setting="strength" type="range" min="1320" max="3190" step="10" value="2000"><div class="cc-range-ends"><span>1320</span><span>3190</span></div><p class="cc-help">Niveau indicatif : le classement réel varie.</p></div>
+        <div class="cc-elo-field" data-ref="eloField" hidden><div class="cc-range-label"><label for="cc-strength">Elo indicatif</label><output for="cc-strength" data-ref="eloValue">2000</output></div><input id="cc-strength" data-setting="strength" type="range" min="500" max="3000" step="500" value="2000"><div class="cc-range-ends"><span>500</span><span>3000</span></div><p class="cc-help">Paliers de 500. Les niveaux débutants sont simulés ; le classement réel varie.</p></div>
         <label class="cc-toggle" for="cc-humanize"><span><span class="cc-toggle-title">Humaniser les choix</span><span class="cc-help">Varie parmi les bons coups proches.</span></span><input id="cc-humanize" data-setting="humanize" type="checkbox"><span class="cc-switch" aria-hidden="true"></span></label>
+        <label class="cc-toggle" for="cc-autoplay"><span><span class="cc-toggle-title">Jeu automatique</span><span class="cc-help">Joue pour la couleur choisie.</span></span><input id="cc-autoplay" data-setting="autoplay" type="checkbox" ${autoplaySupported ? '' : 'disabled'}><span class="cc-switch" aria-hidden="true"></span></label>
+        <div class="cc-field cc-inline-field"><label for="cc-player-color">Couleur jouée</label><select id="cc-player-color" data-setting="playerColor" ${autoplaySupported ? '' : 'disabled'}><option value="w">Blancs</option><option value="b">Noirs</option></select></div>
+        <p class="cc-help cc-auto-note" data-ref="autoplayNote">${autoplaySupported ? 'Désactivé à chaque ouverture. S’arrête en pause ou si l’onglet est masqué. Détection toujours possible.' : 'Jeu automatique disponible sur Chess.com.'}</p>
         <div class="cc-field cc-inline-field"><label for="cc-time">Temps d’analyse</label><select id="cc-time" data-setting="movetime"><option value="400">Rapide · 0,4 s</option><option value="1200">Équilibré · 1,2 s</option><option value="2500">Approfondi · 2,5 s</option></select></div>
         <details class="cc-advanced" data-ref="advanced"><summary>Connexion au plateau<svg viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="m5 6 3 3 3-3" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg></summary><div class="cc-advanced-body">
           <div class="cc-field"><label for="cc-orientation">Orientation du plateau</label><select id="cc-orientation" data-setting="orientation"><option value="auto">Automatique</option><option value="white">Blancs en bas</option><option value="black">Noirs en bas</option></select></div>
@@ -37,7 +40,7 @@ export function createPanel(root) {
         </div></details>
         <div class="cc-engine" data-ref="engine">Stockfish · calcul sur cet appareil</div>
       </div>
-      <footer class="cc-footer"><span>© 2026 Thomas Marsa</span><span>v1.1</span></footer>
+      <footer class="cc-footer"><span>© 2026 Thomas Marsa</span><span>v1.2</span></footer>
     </section>`;
   root.append(container);
   const refs = Object.fromEntries([...container.querySelectorAll('[data-ref]')].map(el => [el.dataset.ref, el]));
@@ -53,6 +56,8 @@ export function syncSettings(ui, settings) {
   c.strengthMode.value = settings.strength === 'max' ? 'max' : 'target';
   c.strength.value = settings.strength === 'max' ? '2000' : String(settings.strength);
   c.humanize.checked = settings.humanize;
+  c.autoplay.checked = settings.autoplay === true;
+  c.playerColor.value = settings.playerColor || 'w';
   c.movetime.value = String(settings.movetime);
   c.orientation.value = settings.orientation;
   c.boardSelector.value = settings.boardSelector;
