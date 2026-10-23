@@ -1,7 +1,7 @@
 // Copyright (c) 2026 Thomas Marsa. GPL-3.0-only.
 /** One explicitly enabled move, bound to a fresh position and a visible document. */
 export function createAutoPlayer({ getState, play, authorize, onPending, onError,
-  delay = 400, makeToken = () => crypto.randomUUID(),
+  delay = 400, makeToken = () => crypto.randomUUID(), setTimer = setTimeout, clearTimer = clearTimeout,
 }) {
   let generation = 0;
   let timer;
@@ -11,7 +11,7 @@ export function createAutoPlayer({ getState, play, authorize, onPending, onError
 
   function cancel() {
     generation += 1;
-    clearTimeout(timer);
+    clearTimer(timer);
     timer = undefined;
     pending = null;
     authorize(null);
@@ -24,7 +24,7 @@ export function createAutoPlayer({ getState, play, authorize, onPending, onError
       && ticket.fen.split(/\s+/)[1] === current.playerColor;
   }
   return {
-    schedule({ fen, uci, board }) {
+    schedule({ fen, uci, board, delayMs }) {
       const state = getState();
       const ticket = { fen, uci, board, playerColor: state.playerColor,
         boardSelector: state.boardSelector || '', orientation: state.orientation };
@@ -33,7 +33,9 @@ export function createAutoPlayer({ getState, play, authorize, onPending, onError
       cancel();
       const epoch = generation;
       pending = ticket;
-      timer = setTimeout(async () => {
+      const requestedDelay = Number.isFinite(delayMs) ? delayMs : Number.isFinite(delay) ? delay : 400;
+      const waitMs = Math.round(Math.max(0, Math.min(10000, requestedDelay)));
+      timer = setTimer(async () => {
         timer = undefined;
         if (epoch !== generation || !allowed(ticket)) { cancel(); return; }
         const token = makeToken();
@@ -52,7 +54,7 @@ export function createAutoPlayer({ getState, play, authorize, onPending, onError
         } finally {
           if (epoch === generation) { pending = null; authorize(null); }
         }
-      }, delay);
+      }, waitMs);
       return true;
     },
     observe(fen, board) {

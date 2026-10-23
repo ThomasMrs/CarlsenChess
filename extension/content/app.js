@@ -3,16 +3,17 @@ import { Chess } from '../vendor/chess.js';
 import { readPosition, findBoard } from './board-adapter.js';
 import { createChessComReader, isChessComPage } from './chesscom-client.js';
 import { createAutoPlayer } from './autoplay.js';
+import { estimateReactionTime } from './reaction-time.js';
 import { createPanel, syncSettings, setRunning, setStatus, clearSuggestion } from './panel.js';
 import { createOverlay } from './overlay.js';
 
-const DEFAULTS = Object.freeze({ strength: 'max', humanize: false, movetime: 1200, orientation: 'auto', boardSelector: '', fenSelector: '', manualFen: '', manualMode: false, autoplay: false, playerColor: 'w' });
+const DEFAULTS = Object.freeze({ strength: 'max', humanize: false, movetime: 1200, orientation: 'auto', boardSelector: '', fenSelector: '', manualFen: '', manualMode: false, autoplay: false, playerColor: 'w', reactionTiming: true });
 const SITE_KEYS = ['boardSelector', 'fenSelector', 'manualFen', 'manualMode', 'playerColor'];
-const GLOBAL_KEYS = ['strength', 'humanize', 'movetime', 'orientation'];
+const GLOBAL_KEYS = ['strength', 'humanize', 'movetime', 'orientation', 'reactionTiming'];
 
 function normalizeSettings(raw = {}) {
   const strength = raw.strength === 'max' || raw.strength == null ? 'max' : Math.round(Math.min(3000, Math.max(500, Number(raw.strength) || 2000)) / 500) * 500;
-  return { ...DEFAULTS, strength, humanize: raw.humanize === true, movetime: [400, 1200, 2500].includes(Number(raw.movetime)) ? Number(raw.movetime) : 1200, orientation: ['white', 'black', 'auto'].includes(raw.orientation) ? raw.orientation : 'auto', boardSelector: String(raw.boardSelector || '').trim(), fenSelector: String(raw.fenSelector || '').trim(), manualFen: String(raw.manualFen || '').trim(), manualMode: raw.manualMode === true, autoplay: raw.autoplay === true, playerColor: raw.playerColor === 'b' ? 'b' : 'w' };
+  return { ...DEFAULTS, strength, humanize: raw.humanize === true, movetime: [400, 1200, 2500].includes(Number(raw.movetime)) ? Number(raw.movetime) : 1200, orientation: ['white', 'black', 'auto'].includes(raw.orientation) ? raw.orientation : 'auto', boardSelector: String(raw.boardSelector || '').trim(), fenSelector: String(raw.fenSelector || '').trim(), manualFen: String(raw.manualFen || '').trim(), manualMode: raw.manualMode === true, autoplay: raw.autoplay === true, playerColor: raw.playerColor === 'b' ? 'b' : 'w', reactionTiming: raw.reactionTiming !== false };
 }
 
 function validateFen(fen) {
@@ -46,7 +47,7 @@ export function mount() {
   const ui = createPanel(root, { autoplaySupported: isChessComPage() });
   const overlay = createOverlay(root);
   document.documentElement.append(host);
-  const state = { settings: { ...DEFAULTS }, stored: {}, running: false, visible: true, collapsed: false, loading: false, position: null, fingerprint: '', token: 0, timer: null, frame: null, manualFen: '', destroyed: false, board: null, storageQueue: Promise.resolve() };
+  const state = { settings: { ...DEFAULTS }, stored: {}, running: false, visible: true, collapsed: false, loading: false, position: null, fingerprint: '', positionStartedAt: 0, token: 0, timer: null, frame: null, manualFen: '', destroyed: false, board: null, storageQueue: Promise.resolve() };
   const chesscomReader = isChessComPage() ? createChessComReader({
     getBoard: () => findBoard({ boardSelector: state.settings.boardSelector }),
     getSelector: () => state.settings.boardSelector,
@@ -140,6 +141,7 @@ export function mount() {
     state.position = next;
     updateSource(next);
     if (!force && !changed) { scheduleReflow(); return; }
+    state.positionStartedAt = performance.now();
     state.fingerprint = nextKey;
     invalidate(!force && autoPlayer.isExecuting());
     if (reportPositionProblem(next)) return;
@@ -184,8 +186,19 @@ export function mount() {
       state.position = { ...current, board };
       overlay.show(board, move, orientation(current));
       setStatus(ui, board ? `${chess.turn() === 'w' ? 'Blancs' : 'Noirs'} : suivez la flèche sur le plateau.${state.settings.humanize ? ' Choix varié activé.' : ''}` : 'Coup calculé. Reliez un plateau pour afficher la flèche.', 'ready');
-      if (autoPlayer.schedule({ fen: position.fen, uci, board })) {
-        setStatus(ui, 'Jeu automatique : coup prêt. Pause pour arrêter.', 'ready');
+      const reaction = state.settings.autoplay && state.settings.reactionTiming
+        ? estimateReactionTime({ fen: position.fen, uci, lines: result.timingLines ?? result.lines }) : null;
+      // The engine's work is part of the reaction time, rather than another delay.
+      const elapsedMs = Math.max(0, performance.now() - state.positionStartedAt);
+      const delayMs = reaction ? Math.max(400, Math.round(reaction.targetMs - elapsedMs)) : 400;
+      if (autoPlayer.schedule({ fen: position.fen, uci, board, delayMs })) {
+        if (reaction) {
+          const seconds = (delayMs / 1000).toLocaleString('fr-FR', { minimumFractionDigits: 1, maximumFractionDigits: 1 });
+          setStatus(ui, `Jeu automatique : attente de ${seconds} s · ${reaction.reason}. Pause pour arrêter.`, 'ready');
+          ui.refs.status.dataset.reactionTargetMs = String(reaction.targetMs);
+          ui.refs.status.dataset.reactionLevel = reaction.level;
+        } else setStatus(ui, 'Jeu automatique : coup prêt. Pause pour arrêter.', 'ready');
+        ui.refs.status.dataset.reactionWaitMs = String(delayMs);
       }
     } catch (error) {
       if (token !== state.token || !state.running || state.destroyed) return;
@@ -244,7 +257,7 @@ export function mount() {
     const c = ui.controls;
     if (key === 'strengthMode') state.settings.strength = c.strengthMode.value === 'max' ? 'max' : Number(c.strength.value);
     else if (key === 'strength') state.settings.strength = Number(c.strength.value);
-    else if (key === 'humanize' || key === 'manualMode' || key === 'autoplay') state.settings[key] = c[key].checked;
+    else if (key === 'humanize' || key === 'manualMode' || key === 'autoplay' || key === 'reactionTiming') state.settings[key] = c[key].checked;
     else if (key === 'movetime') state.settings.movetime = Number(c.movetime.value);
     else state.settings[key] = c[key].value.trim();
     state.settings = normalizeSettings(state.settings);

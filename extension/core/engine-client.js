@@ -55,7 +55,28 @@ export class EngineClient {
     }
     if (!this.current) return;
     const info = parseInfo(line);
-    if (info) this.current.lines.set(info.multipv, info);
+    if (info) {
+      const search = this.current;
+      // Keep the existing latest-per-PV lines unchanged for move selection.
+      search.lines.set(info.multipv, info);
+      if (Number.isSafeInteger(info.depth) && info.depth > 0
+        && Number.isSafeInteger(info.multipv) && info.multipv >= 1 && info.multipv <= search.profile.multiPv) {
+        let depthLines = search.timingDepths.get(info.depth);
+        if (!depthLines) { depthLines = new Map(); search.timingDepths.set(info.depth, depthLines); }
+        depthLines.set(info.multipv, info);
+        // A partial final iteration must not replace a comparable earlier pair.
+        // Only a few recent depths and one complete snapshot remain in memory.
+        while (search.timingDepths.size > 6) search.timingDepths.delete(search.timingDepths.keys().next().value);
+        const first = depthLines.get(1);
+        const second = depthLines.get(2);
+        if (first && second && info.depth >= search.timingDepth
+          && first.move !== second.move && search.timingLegalMoves.has(first.move) && search.timingLegalMoves.has(second.move)) {
+          search.timingDepth = info.depth;
+          search.timingLines = [...depthLines.values()].sort((a, b) => a.multipv - b.multipv)
+            .filter((item) => search.timingLegalMoves.has(item.move));
+        }
+      }
+    }
     if (line.startsWith('bestmove ')) {
       const search = this.current;
       this.current = null;
@@ -68,7 +89,7 @@ export class EngineClient {
         search.reject(new Error('Le moteur a renvoyé un coup invalide pour cette position.'));
         return;
       }
-      search.resolve({ bestMove, ponder, lines,
+      search.resolve({ bestMove, ponder, lines, timingLines: search.timingLines,
         selectedMove: selectMove(lines, bestMove, search.settings, this.random, search.board),
         engineName: this.name, eloLimited: search.settings.elo !== 'max',
         strengthMode: search.profile.strengthMode, targetElo: search.profile.targetElo });
@@ -78,7 +99,7 @@ export class EngineClient {
   async analyze(fen, rawSettings = {}, isCancelled = () => false) {
     const board = validatePosition(fen);
     const settings = normalizeSettings(rawSettings);
-    if (board.isGameOver()) return { bestMove: null, selectedMove: null, lines: [], engineName: this.name, gameOver: true,
+    if (board.isGameOver()) return { bestMove: null, selectedMove: null, lines: [], timingLines: [], engineName: this.name, gameOver: true,
       strengthMode: strengthProfile(settings).strengthMode, targetElo: settings.elo };
     await this.ready;
     if (this.dead) throw new Error('Le moteur est arrêté. Relancez l’analyse.');
@@ -96,7 +117,10 @@ export class EngineClient {
     await synchronized;
     if (isCancelled()) return { cancelled: true };
     return new Promise((resolve, reject) => {
-      this.current = { board, settings, profile, lines: new Map(), resolve, reject, isCancelled, cancelled: false,
+      const timingLegalMoves = new Set(board.moves({ verbose: true })
+        .map((move) => `${move.from}${move.to}${move.promotion || ''}`));
+      this.current = { board, settings, profile, lines: new Map(), timingDepths: new Map(), timingDepth: -1, timingLines: [],
+        timingLegalMoves, resolve, reject, isCancelled, cancelled: false,
         timer: setTimeout(() => this.dispose(new Error('Analyse interrompue après expiration du délai.')), profile.movetime + 15000) };
       this.send(`position fen ${board.fen()}`);
       this.send(`go movetime ${profile.movetime}${profile.searchDepth ? ` depth ${profile.searchDepth}` : ''}`);

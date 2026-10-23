@@ -14,6 +14,7 @@ const productionManifest = await readFile(path.join(root, 'extension/manifest.js
 const steps = [];
 const failures = [];
 const routedRequests = [];
+const reactionTimings = [];
 let context;
 let page;
 let background;
@@ -80,6 +81,37 @@ async function mountPanel() {
   await background.evaluate((tabId) => chrome.scripting.executeScript({ target: { tabId }, files: ['content/bootstrap.js'] }), tabId);
   host = page.locator('#carlsenchess-root');
   await host.getByRole('button', { name: 'Démarrer', exact: true }).waitFor();
+  await page.evaluate(() => {
+    window.__ccReactionStatuses = [];
+    const status = document.querySelector('#carlsenchess-root').shadowRoot.querySelector('[data-ref="status"]');
+    const observer = new MutationObserver(() => {
+      const waitMs = Number(status.dataset.reactionWaitMs);
+      if (!status.dataset.reactionWaitMs || !Number.isFinite(waitMs)) return;
+      const record = { at: Date.now(), waitMs, targetMs: Number(status.dataset.reactionTargetMs),
+        level: status.dataset.reactionLevel, text: status.textContent };
+      window.__ccReactionStatuses.push(record);
+    });
+    observer.observe(status, { childList: true, characterData: true, subtree: true, attributes: true });
+  });
+}
+
+async function reactionStatuses() {
+  return page.evaluate(() => window.__ccReactionStatuses);
+}
+
+async function waitForReaction(after = 0) {
+  return waitFor(async () => (await reactionStatuses()).slice(after).find((record) => record.waitMs >= 0), 'a displayed reaction delay');
+}
+
+async function expectReactionSaved(value) {
+  await waitFor(() => background.evaluate(async (value) => (await chrome.storage.local.get('ccSettings')).ccSettings?.reactionTiming === value, value), `persisted reactionTiming=${value}`);
+}
+
+async function loadFen(fen) {
+  await page.locator('#fen-input').fill(fen);
+  await page.locator('#load-fen').click();
+  assert.equal(await page.locator('#fixture-error').innerText(), '', 'fixture FEN loading succeeds');
+  assert.equal(await currentFen(), fen);
 }
 
 async function playFirstLegalMove() {
@@ -137,6 +169,9 @@ try {
   const initialFen = await currentFen();
   assert.equal(initialFen, new Chess().fen());
   assert.equal(await host.locator('#cc-autoplay').isChecked(), false, 'automatic play is an explicit per-load opt-in');
+  assert.equal(await host.locator('#cc-reaction-timing').isChecked(), true, 'adaptive reaction is enabled by default');
+  await host.locator('#cc-reaction-timing').uncheck();
+  await expectReactionSaved(false);
   assert.equal(await host.locator('#cc-player-color').inputValue(), 'w');
   assert.deepEqual(await host.locator('#cc-strength').evaluate((input) => ({ min: input.min, max: input.max, step: input.step })), { min: '500', max: '3000', step: '500' });
   await host.locator('#cc-humanize').uncheck();
@@ -155,8 +190,14 @@ try {
   await host.locator('[data-ref="badge"][data-state="ready"]').waitFor();
   steps.push('Elo 500 et 1000 sélectionnables par pas de 500, transmis au moteur ; jeu automatique désactivé par défaut');
 
+  const fastStatusCount = (await reactionStatuses()).length;
   await host.locator('#cc-autoplay').check();
+  const fastReaction = await waitForReaction(fastStatusCount);
   let plays = await waitForPlays(1);
+  const fastObservedWait = plays[0].at - fastReaction.at;
+  assert.equal(fastReaction.waitMs, 400, 'disabling adaptive reaction retains the 400 ms post-calculation delay');
+  assert.ok(fastObservedWait >= 300 && fastObservedWait <= 1600, `quick mode really waits about 400 ms after the calculation (observed ${fastObservedWait} ms)`);
+  reactionTimings.push({ mode: 'fast', ...fastReaction, observedWaitMs: fastObservedWait });
   await waitFor(async () => (await currentFen()).split(' ')[1] === 'b', 'the first automatic white move is reflected by the board');
   const afterWhite = await currentFen();
   assert.equal(plays[0].fen, initialFen);
@@ -230,6 +271,7 @@ try {
   await page.locator('#board-analysis-board .piece').first().waitFor();
   await mountPanel();
   assert.equal(await host.locator('#cc-autoplay').isChecked(), false, 'autoplay must not survive a page reload');
+  assert.equal(await host.locator('#cc-reaction-timing').isChecked(), false, 'the reaction preference survives a page reload');
   await host.locator('#cc-time').selectOption('400');
   await start();
   await host.locator('[data-ref="badge"][data-state="ready"]').waitFor({ timeout: 60000 });
@@ -238,10 +280,58 @@ try {
   await pause();
   steps.push('rechargement : activation automatique oubliée, démarrage de l’analyse sans jouer');
 
+  await host.locator('#cc-reaction-timing').check();
+  await expectReactionSaved(true);
+  await host.locator('#cc-strength-mode').selectOption('max');
+  await host.locator('#cc-player-color').selectOption('w');
+  await host.locator('#cc-autoplay').check();
+  const complexFen = 'r3k2r/p1ppqpb1/bn2pnp1/2pP4/1p2P3/2N2N2/PPQBBPPP/R3K2R w KQkq - 0 1';
+  await loadFen(complexFen);
+  let statusCount = (await reactionStatuses()).length;
+  await start();
+  let adaptiveReaction = await waitForReaction(statusCount);
+  assert.match(adaptiveReaction.text, /attente de \d+[,.]\d\s*s/i, 'the estimated remaining wait is visible');
+  assert.ok(adaptiveReaction.targetMs >= 3000, `the complex position has a meaningful reaction target (${adaptiveReaction.targetMs} ms)`);
+  assert.ok(adaptiveReaction.waitMs > 800, `complex positions wait after analysis (${adaptiveReaction.waitMs} ms)`);
+  await expectNoExtraPlays(3, 650);
+  assert.equal(await currentFen(), complexFen, 'no move occurs immediately after the complex calculation finishes');
+  await pause();
+  await expectNoExtraPlays(3, 250);
+  assert.equal(await host.locator('[data-ref="status"]').getAttribute('data-reaction-wait-ms'), null, 'pause clears the displayed pending delay');
+  reactionTimings.push({ mode: 'adaptive-paused', ...adaptiveReaction });
+
+  statusCount = (await reactionStatuses()).length;
+  await start();
+  adaptiveReaction = await waitForReaction(statusCount);
+  await expectNoExtraPlays(3, 650);
+  await host.locator('#cc-player-color').selectOption('b');
+  await expectNoExtraPlays(3, 800);
+  assert.equal(await currentFen(), complexFen, 'changing camp cancels the pending adaptive move');
+  await pause();
+  reactionTimings.push({ mode: 'adaptive-side-changed', ...adaptiveReaction });
+
+  await host.locator('#cc-player-color').selectOption('w');
+  statusCount = (await reactionStatuses()).length;
+  await start();
+  adaptiveReaction = await waitForReaction(statusCount);
+  const adaptiveAnalysis = (await messages('CC_ANALYZE')).at(-1);
+  plays = await waitForPlays(4);
+  const adaptivePlay = plays[3];
+  const adaptiveObservedWait = adaptivePlay.at - adaptiveReaction.at;
+  assert.equal(adaptivePlay.fen, complexFen);
+  assert.ok(adaptiveObservedWait >= adaptiveReaction.waitMs - 100, `adaptive play respects its displayed post-calculation delay (${adaptiveObservedWait} ms)`);
+  assert.ok(adaptiveObservedWait <= adaptiveReaction.waitMs + 1800, 'the displayed reaction delay stays consistent with execution');
+  assert.ok(adaptivePlay.at - adaptiveAnalysis.at >= adaptiveReaction.targetMs - 250, 'the reaction target includes engine computation time');
+  await waitFor(async () => (await currentFen()).split(' ')[1] === 'b', 'the adaptive move is reflected by the fixture');
+  await expectNoExtraPlays(4, 500);
+  await pause();
+  reactionTimings.push({ mode: 'adaptive-executed', ...adaptiveReaction, observedWaitMs: adaptiveObservedWait, analysisToPlayMs: adaptivePlay.at - adaptiveAnalysis.at });
+  steps.push('réaction adaptative activée par défaut et enregistrée ; attente complexe affichée et respectée, annulée par pause et changement de camp ; mode rapide à 400 ms');
+
   await page.screenshot({ path: path.join(resultsPath, 'CarlsenChess-autoplay-fixture.png'), fullPage: true });
   assert.deepEqual(failures, [], 'browser console and page errors');
   assert.equal(await readFile(path.join(root, 'extension/manifest.json'), 'utf8'), productionManifest, 'the production manifest remains unchanged');
-  const report = { ok: true, validation: 'Fixture locale interceptée sous origine Chess.com ; ne valide ni une partie en ligne réelle ni une indétectabilité.', browser: context.browser()?.version(), routedRequests, steps, playRequests: await messages('CC_PLAY_CHESSCOM') };
+  const report = { ok: true, validation: 'Fixture locale interceptée sous origine Chess.com ; ne valide ni une partie en ligne réelle ni une indétectabilité.', browser: context.browser()?.version(), routedRequests, steps, reactionTimings, playRequests: await messages('CC_PLAY_CHESSCOM') };
   await writeFile(path.join(resultsPath, 'autoplay-e2e.json'), JSON.stringify(report, null, 2));
   console.log(JSON.stringify(report, null, 2));
 } catch (error) {

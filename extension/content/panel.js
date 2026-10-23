@@ -30,6 +30,7 @@ export function createPanel(root, { autoplaySupported = false } = {}) {
         <label class="cc-toggle" for="cc-autoplay"><span><span class="cc-toggle-title">Jeu automatique</span><span class="cc-help">Joue pour la couleur choisie.</span></span><input id="cc-autoplay" data-setting="autoplay" type="checkbox" ${autoplaySupported ? '' : 'disabled'}><span class="cc-switch" aria-hidden="true"></span></label>
         <div class="cc-field cc-inline-field"><label for="cc-player-color">Couleur jouée</label><select id="cc-player-color" data-setting="playerColor" ${autoplaySupported ? '' : 'disabled'}><option value="w">Blancs</option><option value="b">Noirs</option></select></div>
         <p class="cc-help cc-auto-note" data-ref="autoplayNote">${autoplaySupported ? 'Désactivé à chaque ouverture. S’arrête en pause ou si l’onglet est masqué. Détection toujours possible.' : 'Jeu automatique disponible sur Chess.com.'}</p>
+        <label class="cc-toggle" for="cc-reaction-timing"><span><span class="cc-toggle-title">Réaction selon la difficulté</span><span class="cc-help">Cible de 0,9 à 10 s, calcul inclus.</span></span><input id="cc-reaction-timing" data-setting="reactionTiming" type="checkbox" checked ${autoplaySupported ? '' : 'disabled'}><span class="cc-switch" aria-hidden="true"></span></label>
         <div class="cc-field cc-inline-field"><label for="cc-time">Temps d’analyse</label><select id="cc-time" data-setting="movetime"><option value="400">Rapide · 0,4 s</option><option value="1200">Équilibré · 1,2 s</option><option value="2500">Approfondi · 2,5 s</option></select></div>
         <details class="cc-advanced" data-ref="advanced"><summary>Connexion au plateau<svg viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="m5 6 3 3 3-3" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg></summary><div class="cc-advanced-body">
           <div class="cc-field"><label for="cc-orientation">Orientation du plateau</label><select id="cc-orientation" data-setting="orientation"><option value="auto">Automatique</option><option value="white">Blancs en bas</option><option value="black">Noirs en bas</option></select></div>
@@ -40,7 +41,7 @@ export function createPanel(root, { autoplaySupported = false } = {}) {
         </div></details>
         <div class="cc-engine" data-ref="engine">Stockfish · calcul sur cet appareil</div>
       </div>
-      <footer class="cc-footer"><span>© 2026 Thomas Marsa</span><span>v1.2</span></footer>
+      <footer class="cc-footer"><span>© 2026 Thomas Marsa</span><span>v1.3</span></footer>
     </section>`;
   root.append(container);
   const refs = Object.fromEntries([...container.querySelectorAll('[data-ref]')].map(el => [el.dataset.ref, el]));
@@ -58,6 +59,7 @@ export function syncSettings(ui, settings) {
   c.humanize.checked = settings.humanize;
   c.autoplay.checked = settings.autoplay === true;
   c.playerColor.value = settings.playerColor || 'w';
+  c.reactionTiming.checked = settings.reactionTiming !== false;
   c.movetime.value = String(settings.movetime);
   c.orientation.value = settings.orientation;
   c.boardSelector.value = settings.boardSelector;
@@ -77,6 +79,9 @@ export function setRunning(ui, running) {
 }
 
 export function setStatus(ui, message, kind = 'idle') {
+  delete ui.refs.status.dataset.reactionWaitMs;
+  delete ui.refs.status.dataset.reactionTargetMs;
+  delete ui.refs.status.dataset.reactionLevel;
   ui.refs.status.textContent = message;
   ui.refs.badge.textContent = { idle: 'En pause', loading: 'Analyse…', ready: 'Coup trouvé', error: 'À vérifier', waiting: 'En attente', complete: 'Terminée' }[kind] || 'En attente';
   ui.refs.badge.dataset.state = kind;

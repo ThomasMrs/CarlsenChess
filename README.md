@@ -6,7 +6,7 @@ Le mode **Puissance maximale** utilise la force disponible du moteur. Le réglag
 
 ![CarlsenChess en fonctionnement : panneau droit et flèche sur le plateau](.github/assets/preview.png)
 
-## Installer la version 1.2.0
+## Installer la version 1.3.0
 
 Prérequis : Google Chrome 116 ou version ultérieure. Node.js 20.19 ou version ultérieure est nécessaire uniquement pour reconstruire le projet depuis ses sources.
 
@@ -23,7 +23,7 @@ npm run build
 4. Épingler CarlsenChess dans la barre d’outils de Chrome.
 5. Ouvrir le jeu, puis cliquer sur l’icône CarlsenChess pour afficher le panneau.
 
-Le build produit aussi `dist/CarlsenChess-v1.2.0.zip` et l’archive complète de sources `dist/CarlsenChess-v1.2.0-source.zip`. Si vous avez téléchargé l’archive de l’extension déjà construite, la décompresser puis charger le dossier qui contient `manifest.json`.
+Le build produit aussi `dist/CarlsenChess-v1.3.0.zip` et l’archive complète de sources `dist/CarlsenChess-v1.3.0-source.zip`. Si vous avez téléchargé l’archive de l’extension déjà construite, la décompresser puis charger le dossier qui contient `manifest.json`.
 
 Après une modification du code, relancer `npm run build`, recharger l’extension dans `chrome://extensions`, puis recharger la page du jeu et cliquer sur l’icône.
 
@@ -44,6 +44,10 @@ La position est réanalysée lorsque le jeu met à jour sa FEN. Une FEN saisie m
 Choisir **Blancs** ou **Noirs** dans **Couleur jouée**, activer **Jeu automatique**, puis cliquer sur **Démarrer** si l’analyse est en pause. L’extension attend le tour de cette couleur, calcule une proposition, puis tente de la jouer sur le plateau. Elle reprend après le coup adverse. Les promotions utilisent la pièce exacte choisie par le moteur, y compris une sous-promotion.
 
 Le jeu automatique est désactivé au chargement de la page et à la fermeture du panneau. **Mettre en pause** annule les actions en attente. Masquer l’onglet désactive l’option ; il faut la réactiver pour reprendre. Le mode FEN manuel ne permet pas le jeu automatique.
+
+**Réaction selon la difficulté**, activé par défaut, adapte le délai à une estimation de la complexité de la position. Un coup légal unique reçoit une cible courte ; plusieurs options proches ou des complications tactiques peuvent allonger l’attente. La cible varie de **0,9 à 10 secondes** depuis la détection de la position. Le temps déjà passé à calculer est déduit, avec un minimum de 400 ms d’attente après le calcul. Si le calcul dépasse la cible, le coup attend donc encore 400 ms. Le panneau indique l’attente restante et sa raison. Le réglage est enregistré indépendamment de **Humaniser les choix** ; le désactiver rétablit l’attente fixe de 400 ms après le calcul.
+
+Cette estimation utilise les coups légaux et les évaluations comparables de Stockfish ; elle ne mesure pas une difficulté humaine. Sans évaluations suffisantes, la cible neutre est de 3,2 secondes. Elle ne lit pas les pendules de la partie. La pause et les changements de position ou de réglages annulent aussi une attente longue.
 
 Les clics synthétiques sont observables par le site : **aucune indétectabilité n’est garantie**. Aucun mécanisme de dissimulation ou de contournement de la confiance des entrées n’est fourni. Si Chess.com refuse un coup ou si le résultat ne peut pas être confirmé, l’option se désactive avec un message, sans nouvelle tentative automatique.
 
@@ -136,7 +140,7 @@ Stockfish.js **19.0.1**, variante complète à un seul thread, est embarqué dan
 
 Les cibles **1500 à 3000** utilisent `UCI_LimitStrength` et `UCI_Elo`, dans la plage native annoncée par Stockfish. Les profils **500 et 1000** sont approximatifs : niveaux `Skill Level` 0 et 4, recherche plafonnée aux profondeurs 3 et 6 et à 200 et 350 ms, variation parmi les candidats et probabilité bornée de choisir un autre coup légal. Cette réduction fonctionne indépendamment de l’option **Humaniser**. Sur ces deux profils, activer cette option augmente le poids des alternatives déjà admissibles dans le tirage pondéré, sans élargir leur sélection ni modifier la probabilité d’erreur. Ces profils ne constituent pas une calibration Elo. Le mode maximal rétablit le niveau complet du moteur. Les anciennes valeurs enregistrées sont arrondies au palier de 500 le plus proche.
 
-Avant chaque action automatique, le coup légal est lié au plateau connecté, à sa FEN actuelle, à la couleur sélectionnée et à une autorisation limitée à cette demande. Un délai de 400 ms laisse les changements de position ou la pause annuler l’action en attente. L’adaptateur envoie des événements DOM de pointeur et de souris, puis vérifie le résultat pendant environ 900 ms. Il ne modifie pas directement l’état interne du jeu et ne réessaie pas un coup refusé.
+Avant chaque action automatique, le coup légal est lié au plateau connecté, à sa FEN actuelle, à la couleur sélectionnée et à une autorisation limitée à cette demande. L’attente de réaction, d’au moins 400 ms après le calcul, laisse les changements de position ou la pause annuler l’action en attente. L’adaptateur envoie des événements DOM de pointeur et de souris, puis vérifie le résultat pendant environ 900 ms. Il ne modifie pas directement l’état interne du jeu et ne réessaie pas un coup refusé.
 
 ## Organisation du code
 
@@ -147,6 +151,7 @@ Avant chaque action automatique, le coup légal est lié au plateau connecté, �
 | `extension/content/chesscom-bridge.js` | Lecture du contrat Chess.com dans MAIN et comparaison avec le placement des pièces visibles. |
 | `extension/content/chesscom-client.js` | Lectures périodiques, cache lié au plateau et rejet des réponses périmées. |
 | `extension/content/autoplay.js` | Planification d’un coup pour la couleur choisie, autorisation temporaire et annulation des actions périmées. |
+| `extension/content/reaction-time.js` | Estimation bornée du délai selon les coups légaux et des évaluations à profondeur commune. |
 | `extension/content/chesscom-play.js` | Clics DOM Chess.com, choix exact de promotion et confirmation du résultat. |
 | `extension/offscreen.html` et `extension/offscreen.js` | Document persistant du moteur et file d’analyses. |
 | `extension/core/` | Protocole UCI, validation et sélection des suggestions. |

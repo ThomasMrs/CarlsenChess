@@ -71,3 +71,56 @@ test('observing another full position allows the next own-turn action',async()=>
     assert.equal(h.schedule(),true);h.player.cancel();
   }finally{h.player.destroy();}
 });
+
+function timedHarness() {
+  const board = { isConnected: true };
+  const state = { enabled: true, visible: true, manual: false, board, fen: FEN, playerColor: 'w' };
+  const calls = [], tokens = [];
+  let scheduled;
+  let latest;
+  const player = createAutoPlayer({ getState: () => state, authorize: t => tokens.push(t),
+    play: async request => { calls.push(request); return { ok: true, played: true }; },
+    makeToken: () => 'timed-token',
+    setTimer: (callback, ms) => { latest = { callback, ms }; scheduled = latest; return latest; },
+    clearTimer: handle => { if (scheduled === handle) scheduled = null; },
+  });
+  return { player, state, calls, tokens, get latest() { return latest; },
+    get scheduled() { return scheduled; },
+    schedule: delayMs => player.schedule({ fen: FEN, uci: 'e2e4', board, delayMs }) };
+}
+
+test('a difficulty delay waits without authorizing input, then plays only the scheduled position', async () => {
+  const h = timedHarness();
+  try {
+    assert.equal(h.schedule(6200), true);
+    assert.equal(h.scheduled.ms, 6200);
+    assert.deepEqual(h.calls, []);
+    assert.equal(h.tokens.at(-1), null);
+    assert.equal(h.schedule(400), false, 'a second proposal cannot shorten an already queued move');
+    await h.scheduled.callback();
+    assert.equal(h.calls.length, 1);
+    assert.equal(h.calls[0].fen, FEN);
+    assert.equal(h.tokens.at(-1), null);
+  } finally { h.player.destroy(); }
+});
+
+test('pause removes a long reaction timer and a late timer callback cannot send input', async () => {
+  const h = timedHarness();
+  try {
+    h.schedule(10000);
+    const lateCallback = h.scheduled.callback;
+    h.player.cancel();
+    assert.equal(h.scheduled, null);
+    await lateCallback();
+    assert.deepEqual(h.calls, []);
+    assert.equal(h.tokens.at(-1), null);
+  } finally { h.player.destroy(); }
+});
+
+test('reaction timers use the fixed fallback and reject unbounded timer values', () => {
+  for (const [requested, expected] of [[undefined, 400], [NaN, 400], [Infinity, 400], [20000, 10000], [1550.6, 1551]]) {
+    const h = timedHarness();
+    try { h.schedule(requested); assert.equal(h.scheduled.ms, expected); }
+    finally { h.player.destroy(); }
+  }
+});

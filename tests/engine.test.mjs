@@ -62,6 +62,10 @@ test('actual full Stockfish finds mate, supports target strength, cancels cleanl
 
 class FakeUciWorker {
   commands=[];
+  lines=[
+    'info depth 3 multipv 1 score cp 30 pv e2e4 e7e5',
+    'info depth 3 multipv 2 score cp -30 pv d2d4 d7d5',
+  ];
   postMessage(command) {
     this.commands.push(command);
     queueMicrotask(()=>{
@@ -71,8 +75,7 @@ class FakeUciWorker {
         emit('uciok');
       } else if (command === 'isready') emit('readyok');
       else if (command.startsWith('go ')) {
-        emit('info depth 3 multipv 1 score cp 30 pv e2e4 e7e5');
-        emit('info depth 3 multipv 2 score cp -30 pv d2d4 d7d5');
+        for (const line of this.lines) emit(line);
         emit('bestmove e2e4');
       }
     });
@@ -100,5 +103,50 @@ test('engine applies separate beginner, native and maximum settings and restores
       else assert.equal(commands.some(command=>command.startsWith('setoption name UCI_Elo')),false);
       assert.equal(result.selectedMove,mode === 'approximate' ? 'd2d4' : 'e2e4');
     }
+  } finally {client.dispose();}
+});
+
+test('timing lines retain the latest complete common depth while ordinary lines keep the partial final iteration', async () => {
+  const worker=new FakeUciWorker();
+  worker.lines=[
+    'info depth 8 multipv 1 score cp 40 pv e2e4 e7e5',
+    'info depth 8 multipv 2 score cp 25 pv d2d4 d7d5',
+    'info depth 9 multipv 1 score cp 45 pv e2e4 e7e5',
+    'info depth 9 multipv 2 score cp 20 pv d2d4 d7d5',
+    'info depth 9 multipv 3 score cp 10 pv g1f3 g8f6',
+    'info depth 10 multipv 1 score cp 70 pv e2e4 e7e5',
+  ];
+  const client=new EngineClient(()=>worker,()=>0);
+  try {
+    const result=await client.analyze(new Chess().fen(),{elo:'max',humanize:false});
+    assert.deepEqual(result.lines.map(line=>[line.multipv,line.depth,line.score.value]),[[1,10,70],[2,9,20],[3,9,10]]);
+    assert.deepEqual(result.timingLines.map(line=>[line.multipv,line.depth,line.score.value]),[[1,9,45],[2,9,20],[3,9,10]]);
+    assert.equal(result.bestMove,'e2e4');
+    assert.equal(result.selectedMove,'e2e4');
+    for (const line of result.timingLines) assert.doesNotThrow(()=>new Chess().move({from:line.move.slice(0,2),to:line.move.slice(2,4)}));
+    worker.lines=[
+      'info depth 3 multipv 1 score cp 40 pv e2e4 e7e5',
+      'info depth 4 multipv 2 score cp 20 pv d2d4 d7d5',
+    ];
+    const next=await client.analyze(new Chess().fen(),{elo:'max',humanize:false});
+    assert.deepEqual(next.timingLines,[]);
+    assert.deepEqual(next.lines.map(line=>line.depth),[3,4]);
+  } finally {client.dispose();}
+});
+
+test('an illegal root move cannot complete a timing pair or enter its optional extra lines', async () => {
+  const worker=new FakeUciWorker();
+  worker.lines=[
+    'info depth 7 multipv 1 score cp 40 pv e2e4 e7e5',
+    'info depth 7 multipv 2 score cp 25 pv d2d4 d7d5',
+    'info depth 7 multipv 3 score cp 10 pv e2e5',
+    'info depth 8 multipv 1 score cp 50 pv e2e4 e7e5',
+    'info depth 8 multipv 2 score cp 30 pv d2d5',
+  ];
+  const client=new EngineClient(()=>worker);
+  try {
+    const result=await client.analyze(new Chess().fen(),{elo:'max'});
+    assert.deepEqual(result.timingLines.map(line=>[line.multipv,line.depth]),[[1,7],[2,7]]);
+    assert.deepEqual(result.lines.map(line=>[line.multipv,line.depth]),[[1,8]]);
   } finally {client.dispose();}
 });
