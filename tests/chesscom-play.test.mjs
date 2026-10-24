@@ -9,11 +9,15 @@ let dom;
 
 function fixture({ fen = START, orientation = 'white', url = 'https://www.chess.com/analysis',
   ignore = false, promotionChooser = true, autoQueen = false, wrongMove = false,
-  opponentReplyDelay = null, immediateOpponentReply = false, movementAnimation = 0 } = {}) {
+  opponentReplyDelay = null, immediateOpponentReply = false, movementAnimation = 0,
+  promotionDelay = 0, deferRender = false } = {}) {
   dom = new JSDOM('<!doctype html><html><body><div id="carlsenchess-root" data-cc-play-token="test-token"></div><wc-chess-board id="board"></wc-chess-board></body></html>', {
     url, runScripts: 'outside-only',
   });
   const document = dom.window.document;
+  let pageClockOffset = 0;
+  const pageNow = dom.window.Date.now.bind(dom.window.Date);
+  dom.window.Date.now = () => pageNow() + pageClockOffset;
   dom.window.PointerEvent = dom.window.MouseEvent;
   const board = document.querySelector('#board');
   const host = document.querySelector('#carlsenchess-root');
@@ -95,12 +99,15 @@ function fixture({ fen = START, orientation = 'white', url = 'https://www.chess.
     if (choices.some((move) => move.promotion)) {
       pending = { from: selected, to: square };
       if (autoQueen) { game.move({ ...pending, promotion: 'q' }); render(); }
-      else if (promotionChooser) choosePromotion();
+      else if (promotionChooser) {
+        if (promotionDelay) dom.window.setTimeout(choosePromotion, promotionDelay);
+        else choosePromotion();
+      }
       return;
     }
     if (!choices.length) return;
     game.move(wrongMove ? { from: 'd2', to: 'd4' } : { from: selected, to: square });
-    selected = null; render();
+    selected = null; if (!deferRender) render();
     ownMoveFen = game.fen();
     motionUntil = Date.now() + movementAnimation;
     const reply = () => { game.move('e5'); render(); motionUntil = Date.now() + movementAnimation; };
@@ -116,6 +123,8 @@ function fixture({ fen = START, orientation = 'white', url = 'https://www.chess.
   }
   return { document, board, host, game, events, clicks, request, play,
     getOwnMoveFen: () => ownMoveFen,
+    advancePageClock(ms) { pageClockOffset += ms; },
+    resetPosition(fen = START) { game.load(fen); selected = null; pending = null; motionUntil = 0; render(); },
     setRect(value) { rect = { ...rect, ...value }; }, cover() { covered = true; } };
 }
 
@@ -124,7 +133,8 @@ afterEach(() => { dom?.window.close(); });
 test('serialized MAIN-world action plays exactly one click-selected move and verifies its FEN', async () => {
   const f = fixture();
   const result = await f.play();
-  assert.deepEqual(result, { ok: true, played: true, fen: f.game.fen(), error: null });
+  assert.deepEqual(result, { ok: true, played: true, fen: f.game.fen(), error: null,
+    code: 'MOVE_CONFIRMED', inputSent: true, retryable: false });
   assert.equal(f.game.get('e4')?.type, 'p');
   assert.equal(f.clicks.length, 2);
   assert.deepEqual(f.events.map(({ type }) => type), [
@@ -140,6 +150,20 @@ test('black orientation uses the actual source piece center and correctly revers
   assert.equal((await f.play({ uci: 'e7e5' })).played, true);
   assert.equal(f.game.get('e5')?.color, 'b');
   assert.deepEqual(f.clicks, [{ x: 250, y: 440 }, { x: 250, y: 320 }]);
+});
+
+test('a confirmed move permits a legitimately reset game on the same board with renewed authorization', async () => {
+  const f = fixture();
+  const originalBoard = f.board;
+  assert.equal((await f.play()).code, 'MOVE_CONFIRMED');
+  f.resetPosition();
+  f.host.setAttribute('data-cc-play-token', 'renewed-token');
+  const result = await f.play({ token: 'renewed-token' });
+  assert.equal(result.code, 'MOVE_CONFIRMED', result.error);
+  assert.equal(result.played, true);
+  assert.equal(f.board, originalBoard);
+  assert.equal(f.game.get('e4')?.color, 'w');
+  assert.equal(f.clicks.length, 4);
 });
 
 test('HTTPS chess.com and actual subdomains pass; lookalikes and HTTP cannot emit input', async () => {
@@ -205,45 +229,166 @@ test('cancellation triggered by source selection prevents the destination click'
 test('revoking authorization on pointerdown prevents later synthetic input events', async () => {
   const f = fixture();
   f.board.addEventListener('pointerdown', () => f.host.removeAttribute('data-cc-play-token'), { once: true });
-  assert.equal((await f.play()).played, false);
+  const result = await f.play();
+  assert.equal(result.played, false);
+  assert.equal(result.code, 'CANCELLED');
+  assert.equal(result.inputSent, true);
+  assert.equal(result.retryable, false);
   assert.deepEqual(f.events.map(({ type }) => type), ['pointerdown']);
   assert.equal(f.game.fen(), START);
 });
 
-test('a hidden document with an otherwise valid authorization token cannot emit input', async () => {
+test('a hidden document with a valid authorization token plays the move normally', async () => {
   const f = fixture();
   Object.defineProperty(f.document, 'visibilityState', { configurable: true, get: () => 'hidden' });
   const result = await f.play();
-  assert.match(result.error, /onglet.*masqué/);
-  assert.equal(result.played, false);
+  assert.equal(result.code, 'MOVE_CONFIRMED');
+  assert.equal(result.played, true);
   assert.equal(f.host.getAttribute('data-cc-play-token'), 'test-token');
-  assert.equal(f.events.length, 0);
-  assert.equal(f.game.fen(), START);
+  assert.equal(f.clicks.length, 2);
+  assert.equal(f.game.get('e4')?.color, 'w');
 });
 
-test('hiding the document after any source event prevents every later event and destination input', async () => {
+test('hiding the document after any source event keeps the authorized move running', async () => {
   const sequence = ['pointerdown', 'mousedown', 'pointerup', 'mouseup', 'click'];
-  for (const [index, type] of sequence.entries()) {
+  for (const type of sequence) {
     const f = fixture();
     let hidden = false;
     Object.defineProperty(f.document, 'visibilityState', { configurable: true, get: () => hidden ? 'hidden' : 'visible' });
     f.board.addEventListener(type, () => { hidden = true; }, { once: true });
-    assert.equal((await f.play()).played, false, type);
-    assert.deepEqual(f.events.map((event) => event.type), sequence.slice(0, index + 1), type);
+    assert.equal((await f.play()).played, true, type);
+    assert.deepEqual(f.events.map((event) => event.type), [...sequence, ...sequence], type);
     assert.equal(f.host.getAttribute('data-cc-play-token'), 'test-token');
-    assert.equal(f.game.fen(), START);
+    assert.equal(f.game.get('e4')?.color, 'w');
     dom.window.close();
   }
 });
 
-test('hiding the document when the promotion chooser opens prevents the promotion click', async () => {
+test('hiding the document when the promotion chooser opens does not interrupt promotion', async () => {
   const f = fixture({ fen: '7k/P7/8/8/8/8/8/7K w - - 0 1' });
   let hidden = false;
   Object.defineProperty(f.document, 'visibilityState', { configurable: true, get: () => hidden ? 'hidden' : 'visible' });
   f.board.addEventListener('click', () => { if (f.clicks.length === 2) hidden = true; });
-  assert.equal((await f.play({ uci: 'a7a8n' })).played, false);
+  assert.equal((await f.play({ uci: 'a7a8n' })).played, true);
+  assert.equal(f.clicks.length, 3);
+  assert.equal(f.game.get('a8')?.type, 'n');
+});
+
+test('a hidden document also completes a promotion that appears after a delayed wake-up', async () => {
+  const f = fixture({ fen: '7k/P7/8/8/8/8/8/7K w - - 0 1', promotionDelay: 20 });
+  Object.defineProperty(f.document, 'visibilityState', { configurable: true, get: () => 'hidden' });
+  const playing = f.play({ uci: 'a7a8r' });
+  f.advancePageClock(6000);
+  const result = await playing;
+  assert.equal(result.code, 'MOVE_CONFIRMED', result.error);
+  assert.equal(f.clicks.length, 3);
+  assert.equal(f.game.get('a8')?.type, 'r');
+});
+
+test('explicit cancellation in a hidden tab blocks initial input and a pending promotion choice', async () => {
+  const f = fixture({ fen: '7k/P7/8/8/8/8/8/7K w - - 0 1', promotionDelay: 20 });
+  Object.defineProperty(f.document, 'visibilityState', { configurable: true, get: () => 'hidden' });
+  const before = await f.play({ uci: 'a7a8n', token: 'revoked' });
+  assert.equal(before.code, 'CANCELLED');
+  assert.equal(before.inputSent, false);
+  assert.equal(before.retryable, true);
+  assert.equal(f.events.length, 0);
+  const playing = f.play({ uci: 'a7a8n' });
+  f.host.removeAttribute('data-cc-play-token');
+  const after = await playing;
+  assert.equal(after.code, 'CANCELLED');
+  assert.equal(after.inputSent, true);
+  assert.equal(after.retryable, false);
   assert.equal(f.clicks.length, 2);
   assert.equal(f.game.fen(), f.request.expectedFen);
+});
+
+test('token revocation wakes refused input and pending promotion despite a delayed background timer', { timeout: 1500 }, async () => {
+  for (const options of [{ ignore: true }, { fen: '7k/P7/8/8/8/8/8/7K w - - 0 1', promotionChooser: false }]) {
+    const f = fixture(options);
+    Object.defineProperty(f.document, 'visibilityState', { configurable: true, get: () => 'hidden' });
+    const view = f.document.defaultView;
+    const setTimer = view.setTimeout.bind(view);
+    let delayedTimers = 0;
+    view.setTimeout = (callback, delay, ...args) => {
+      if (delay === 80) { delayedTimers += 1; return setTimer(callback, 60000, ...args); }
+      return setTimer(callback, delay, ...args);
+    };
+    const playing = f.play(options.fen ? { uci: 'a7a8n' } : {});
+    queueMicrotask(() => f.host.removeAttribute('data-cc-play-token'));
+    const result = await playing;
+    assert.equal(delayedTimers, 1);
+    assert.equal(result.code, 'CANCELLED');
+    assert.equal(result.inputSent, true);
+    assert.equal(result.retryable, false);
+    assert.equal(f.clicks.length, 2);
+    assert.equal(f.game.fen(), f.request.expectedFen);
+    dom.window.close();
+  }
+});
+
+test('a frozen running animation in a hidden tab does not veto exact placement and source geometry', async () => {
+  const f = fixture();
+  Object.defineProperty(f.document, 'visibilityState', { configurable: true, get: () => 'hidden' });
+  f.board.getAnimations = () => [{ playState: 'running', effect: {
+    target: f.board.querySelector('.piece'), getComputedTiming: () => ({ activeDuration: 180 }),
+    getKeyframes: () => [{ transform: 'translate(0)' }],
+  } }];
+  assert.equal((await f.play()).played, true);
+  assert.equal(f.clicks.length, 2);
+});
+
+test('hidden tabs still require exact DOM placement, CSS visibility, and actual source geometry', async () => {
+  for (const [change, code] of [
+    [(f) => f.board.querySelector('.wp.square-52').classList.add('ghost'), 'POSITION_TRANSITION'],
+    [(f) => { f.board.style.visibility = 'hidden'; }, 'BOARD_UNAVAILABLE'],
+    [(f) => { f.board.querySelector('.wp.square-52').getBoundingClientRect = () => ({ left: 40, top: 50, width: 60, height: 60 }); }, 'UNSTABLE_GEOMETRY'],
+  ]) {
+    const f = fixture();
+    Object.defineProperty(f.document, 'visibilityState', { configurable: true, get: () => 'hidden' });
+    change(f);
+    const result = await f.play();
+    assert.equal(result.code, code);
+    assert.equal(result.inputSent, false);
+    assert.equal(result.retryable, true);
+    assert.equal(f.events.length, 0);
+    dom.window.close();
+  }
+});
+
+test('a pre-input failure remains safe to retry after the cause is fixed', async () => {
+  const f = fixture();
+  f.setRect({ left: -10 });
+  const first = await f.play();
+  assert.equal(first.code, 'BOARD_CLIPPED');
+  assert.equal(first.inputSent, false);
+  assert.equal(first.retryable, true);
+  f.setRect({ left: 40 });
+  assert.equal((await f.play()).played, true);
+  assert.equal(f.clicks.length, 2);
+});
+
+test('a game API confirmation succeeds even if visual rendering has not run again', async () => {
+  const f = fixture({ deferRender: true, movementAnimation: 60000 });
+  Object.defineProperty(f.document, 'visibilityState', { configurable: true, get: () => 'hidden' });
+  const result = await f.play();
+  assert.equal(result.code, 'MOVE_CONFIRMED');
+  assert.equal(result.played, true);
+  assert.ok(f.board.querySelector('.wp.square-52'), 'the DOM intentionally still shows the old pawn square');
+  assert.equal(f.game.get('e4')?.color, 'w');
+});
+
+test('a timer waking beyond the nominal deadline still reads a late game API confirmation', async () => {
+  const f = fixture({ ignore: true });
+  Object.defineProperty(f.document, 'visibilityState', { configurable: true, get: () => 'hidden' });
+  const playing = f.play();
+  f.advancePageClock(10000);
+  f.game.move('e4');
+  const result = await playing;
+  assert.equal(result.code, 'MOVE_CONFIRMED', result.error);
+  assert.equal(result.played, true);
+  assert.equal(result.fen, f.game.fen());
+  assert.equal(f.clicks.length, 2);
 });
 
 test('a flip or resize triggered by source selection prevents a stale-coordinate destination click', async () => {
@@ -262,10 +407,22 @@ test('duplicate and overlapping requests never send a second move or retry refus
   const first = f.play();
   const second = await f.play();
   assert.match(second.error, /déjà été tenté/);
+  assert.equal(second.code, 'DUPLICATE_ATTEMPT');
+  assert.equal(second.inputSent, true);
+  assert.equal(second.retryable, false);
+  f.advancePageClock(6000);
   const result = await first;
   assert.match(result.error, /clics synthétiques peuvent être refusés/);
+  assert.equal(result.code, 'MOVE_UNCONFIRMED');
+  assert.equal(result.inputSent, true);
+  assert.equal(result.retryable, false);
   assert.equal(f.clicks.length, 2);
   assert.match((await f.play()).error, /déjà été tenté/);
+  f.host.setAttribute('data-cc-play-token', 'renewed-token');
+  const renewed = await f.play({ token: 'renewed-token' });
+  assert.equal(renewed.code, 'DUPLICATE_ATTEMPT');
+  assert.equal(renewed.inputSent, true);
+  assert.equal(renewed.retryable, false);
   assert.equal(f.clicks.length, 2);
 });
 
@@ -303,9 +460,14 @@ test('auto-queen cannot silently substitute a requested underpromotion', async (
 
 test('an absent promotion chooser fails clearly instead of choosing another type', async () => {
   const f = fixture({ fen: '7k/P7/8/8/8/8/8/7K w - - 0 1', promotionChooser: false });
-  const result = await f.play({ uci: 'a7a8r' });
+  const playing = f.play({ uci: 'a7a8r' });
+  f.advancePageClock(6000);
+  const result = await playing;
   assert.equal(result.played, false);
   assert.match(result.error, /promotion.*pas été confirmée/);
+  assert.equal(result.code, 'PROMOTION_UNCONFIRMED');
+  assert.equal(result.inputSent, true);
+  assert.equal(result.retryable, false);
   assert.equal(f.game.fen(), f.request.expectedFen);
   assert.equal(f.clicks.length, 2);
 });
@@ -335,6 +497,7 @@ test('an observed API confirmation survives an opponent premove during piece ani
   const result = await f.play();
   assert.equal(result.played, true, result.error);
   assert.equal(result.fen, f.getOwnMoveFen());
+  await new Promise((resolve) => setTimeout(resolve, 30));
   assert.notEqual(result.fen, f.game.fen());
   assert.equal(f.game.get('e5')?.color, 'b');
   assert.equal(f.clicks.length, 2);

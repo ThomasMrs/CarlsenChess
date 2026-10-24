@@ -4,7 +4,7 @@ export function readChessComPlacement(board) {
   try {
     if (!board) return null;
     const document = board.ownerDocument;
-    if (typeof board.getAnimations === 'function' && board.getAnimations({ subtree: true }).some((animation) => {
+    if (document.visibilityState !== 'hidden' && typeof board.getAnimations === 'function' && board.getAnimations({ subtree: true }).some((animation) => {
       if (!animation.pending && ['finished', 'idle'].includes(animation.playState)) return false;
       const effect = animation.effect;
       if (!effect?.target?.matches?.('.piece')) return false;
@@ -150,7 +150,7 @@ export function readChessComSnapshot(boardSelector = '') {
     // readChessComSnapshot alone, so it cannot refer to module-level bindings.
     const readPlacement = (board) => {
       const document = board.ownerDocument;
-      if (typeof board.getAnimations === 'function' && board.getAnimations({ subtree: true }).some((animation) => {
+      if (document.visibilityState !== 'hidden' && typeof board.getAnimations === 'function' && board.getAnimations({ subtree: true }).some((animation) => {
         if (!animation.pending && ['finished', 'idle'].includes(animation.playState)) return false;
         const effect = animation.effect;
         if (!effect?.target?.matches?.('.piece')) return false;

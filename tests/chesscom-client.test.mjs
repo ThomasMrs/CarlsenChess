@@ -117,3 +117,48 @@ test('an API failure or wrong board identity cannot become a trusted FEN',async(
     }finally{h.close();}
   }
 });
+
+test('readNow refreshes an expired snapshot before a delayed action can use it', async () => {
+  const h = harness();
+  try {
+    h.reader.setActive(true); await nextTurn();
+    h.pending[0].resolve(h.response()); await nextTurn();
+    h.setTime(10000);
+    assert.equal(h.read().fen, null);
+    const fresh = h.reader.readNow();
+    assert.equal(h.calls.length, 2);
+    h.pending[1].resolve(h.response());
+    await fresh;
+    assert.equal(h.read().fen, START);
+  } finally { h.close(); }
+});
+
+test('pausing while readNow awaits an existing read prevents another request', async () => {
+  const h = harness();
+  try {
+    h.reader.setActive(true); await nextTurn();
+    const fresh = h.reader.readNow();
+    assert.equal(h.calls.length, 1);
+    h.reader.setActive(false);
+    h.pending[0].resolve(h.response());
+    await fresh;
+    assert.equal(h.calls.length, 1);
+    assert.equal(h.read().fen, null);
+  } finally { h.close(); }
+});
+
+test('concurrent readNow callers share a single fresh MAIN request', async () => {
+  const h = harness();
+  try {
+    h.reader.setActive(true); await nextTurn();
+    h.pending[0].resolve(h.response()); await nextTurn();
+    const first = h.reader.readNow();
+    const second = h.reader.readNow();
+    assert.equal(first, second);
+    assert.equal(h.calls.length, 2);
+    h.pending[1].resolve(h.response());
+    await Promise.all([first, second]);
+    assert.equal(h.calls.length, 2);
+    assert.equal(h.read().fen, START);
+  } finally { h.close(); }
+});

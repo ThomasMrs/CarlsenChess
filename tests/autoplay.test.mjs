@@ -26,8 +26,8 @@ test('one opted-in action is bound to FEN, board, color and live authorization',
   }finally{h.player.destroy();}
 });
 
-test('disabled, hidden, manual and opponent states never queue an input',()=>{
-  for(const patch of [{enabled:false},{visible:false},{manual:true},{playerColor:'b'}]){
+test('disabled, manual and opponent states never queue an input',()=>{
+  for(const patch of [{enabled:false},{manual:true},{playerColor:'b'}]){
     const h=harness();try{Object.assign(h.state,patch);assert.equal(h.schedule(),false);assert.equal(h.calls.length,0);}
     finally{h.player.destroy();}
   }
@@ -123,4 +123,184 @@ test('reaction timers use the fixed fallback and reject unbounded timer values',
     try { h.schedule(requested); assert.equal(h.scheduled.ms, expected); }
     finally { h.player.destroy(); }
   }
+});
+
+function deferred() {
+  let resolve, reject;
+  const promise=new Promise((done,fail)=>{resolve=done;reject=fail;});
+  return {promise,resolve,reject};
+}
+
+function freshHarness() {
+  let time=0, serial=0, tokenSerial=0;
+  const timers=new Map();
+  const board={isConnected:true};
+  const state={enabled:true,visible:true,manual:false,board,fen:FEN,playerColor:'w',orientation:'white'};
+  const h={state,calls:[],tokens:[],errors:[],retries:[],stales:0,refreshes:0,
+    refresh:async()=>{},play:async()=>({ok:true,played:true})};
+  const player=createAutoPlayer({
+    getState:()=>state,authorize:token=>h.tokens.push(token),
+    refresh:()=>{h.refreshes+=1;return h.refresh();},
+    play:request=>{h.calls.push(request);return h.play(request);},
+    onError:(error,response,ticket)=>h.errors.push({error,response,ticket}),
+    onStale:()=>{h.stales+=1;},onRetry:error=>h.retries.push(error),
+    makeToken:()=>`fresh-token-${++tokenSerial}`,
+    setTimer:(callback,ms)=>{const id=++serial;timers.set(id,{id,callback,ms,due:time+ms});return id;},
+    clearTimer:id=>timers.delete(id),
+  });
+  const first=()=>[...timers.values()].sort((a,b)=>a.due-b.due || a.id-b.id)[0];
+  h.player=player;
+  h.clock={get next(){return first();},get size(){return timers.size;},
+    fire(){const job=first();assert.ok(job,'a timer is queued');time=job.due;timers.delete(job.id);return job.callback();}};
+  h.schedule=delayMs=>player.schedule({fen:FEN,uci:'e2e4',board,delayMs});
+  return h;
+}
+
+test('an explicitly enabled hidden tab refreshes and plays without a visibility gate',async()=>{
+  const h=freshHarness();try{
+    h.state.visible=false;
+    assert.equal(h.schedule(500),true);
+    await h.clock.fire();
+    assert.equal(h.refreshes,1);
+    assert.equal(h.calls.length,1);
+    assert.deepEqual(h.errors,[]);
+  }finally{h.player.destroy();}
+});
+
+test('cache expiry during a queued reaction preserves its deadline and fresh preflight restores the same FEN',async()=>{
+  const h=freshHarness();try{
+    h.schedule(6200);
+    const deadline=h.clock.next;
+    h.state.fen=null;
+    h.player.observe(null,h.state.board);
+    assert.equal(h.player.isPending(),true);
+    assert.equal(h.player.isPreparing(),false);
+    assert.equal(h.clock.next,deadline);
+    h.refresh=async()=>{h.state.fen=FEN;h.player.observe(FEN,h.state.board);};
+    await h.clock.fire();
+    assert.equal(h.calls.length,1);
+    assert.equal(h.stales,0);
+  }finally{h.player.destroy();}
+});
+
+test('fresh preflight awaits the reader without authorizing input and tolerates a temporary null FEN',async()=>{
+  const h=freshHarness(),gate=deferred();try{
+    h.refresh=()=>gate.promise;
+    h.schedule(400);
+    const waking=h.clock.fire();
+    assert.equal(h.player.isPreparing(),true);
+    assert.equal(h.player.isPending(),true);
+    assert.equal(h.player.isExecuting(),false);
+    assert.equal(h.calls.length,0);
+    assert.equal(h.tokens.at(-1),null);
+    h.state.fen=null;h.player.observe(null,h.state.board);
+    assert.equal(h.player.isPreparing(),true);
+    h.state.fen=FEN;gate.resolve();await waking;
+    assert.equal(h.calls.length,1);
+    assert.equal(h.player.isPending(),false);
+  }finally{h.player.destroy();}
+});
+
+test('pause, side, known FEN and board changes during fresh preflight prevent an action',async()=>{
+  for(const change of [
+    h=>{h.state.enabled=false;h.player.cancel();},
+    h=>{h.state.playerColor='b';},
+    h=>{h.state.fen=FEN.replace(' w ',' b ');h.player.observe(h.state.fen,h.state.board);},
+    h=>{h.state.board={isConnected:true};h.player.observe(null,h.state.board);},
+  ]){
+    const h=freshHarness(),gate=deferred();try{
+      h.refresh=()=>gate.promise;h.schedule(400);
+      const waking=h.clock.fire();assert.equal(h.player.isPreparing(),true);
+      change(h);gate.resolve();await waking;
+      assert.equal(h.calls.length,0);
+      assert.equal(h.player.isPending(),false);
+      assert.equal(h.tokens.at(-1),null);
+      assert.deepEqual(h.errors,[]);
+    }finally{h.player.destroy();}
+  }
+});
+
+test('a failed refresh or unavailable fresh FEN reports stale and permits the next observation to replan',async()=>{
+  for(const refresh of [async()=>{throw new Error('Lecture temporaire');},async()=>false,async()=>({ok:false})]){
+    const h=freshHarness();try{
+      h.refresh=refresh;h.schedule(400);await h.clock.fire();
+      assert.equal(h.calls.length,0);assert.equal(h.stales,1);
+      assert.equal(h.player.isPending(),false);assert.deepEqual(h.errors,[]);
+      h.refresh=async()=>{};
+      assert.equal(h.schedule(400),true);await h.clock.fire();
+      assert.equal(h.calls.length,1);
+    }finally{h.player.destroy();}
+  }
+  const h=freshHarness();try{
+    h.schedule(400);h.state.fen=null;await h.clock.fire();
+    assert.equal(h.stales,1);assert.equal(h.calls.length,0);
+    h.state.fen=FEN;assert.equal(h.schedule(400),true);await h.clock.fire();
+    assert.equal(h.calls.length,1);
+  }finally{h.player.destroy();}
+});
+
+test('known pre-input transient failures retry at most twice, after 1000ms and another fresh read',async()=>{
+  const h=freshHarness();try{
+    h.play=async()=>({ok:false,retryable:true,inputSent:false,error:'Animation en cours'});
+    h.schedule(400);
+    for(let attempt=1;attempt<=3;attempt+=1){
+      await h.clock.fire();
+      assert.equal(h.calls.length,attempt);
+      assert.equal(h.refreshes,attempt);
+      assert.equal(h.player.isExecuting(),false);
+      assert.equal(h.tokens.at(-1),null);
+      assert.equal(h.schedule(0),false,'duplicate proposals cannot bypass the retry budget');
+      if(attempt<3){
+        assert.equal(h.clock.next.ms,1000);
+        assert.equal(h.player.isPending(),true);
+        assert.equal(h.retries.length,attempt);
+      }
+    }
+    assert.equal(new Set(h.calls.map(call=>call.token)).size,3);
+    assert.equal(h.clock.size,0);assert.equal(h.player.isPending(),false);
+    assert.equal(h.errors.length,1);assert.equal(h.retries.length,2);
+    assert.equal(h.errors[0].response.inputSent,false);
+    assert.equal(h.errors[0].ticket.fen,FEN);
+  }finally{h.player.destroy();}
+});
+
+test('a stale preflight during a known-safe retry can replan without resetting the bounded attempt count',async()=>{
+  const h=freshHarness();try{
+    h.play=async()=>({ok:false,retryable:true,inputSent:false,error:'Attente'});
+    h.schedule(400);await h.clock.fire();
+    h.refresh=async()=>false;await h.clock.fire();
+    assert.equal(h.stales,1);assert.equal(h.calls.length,1);
+    h.refresh=async()=>{};
+    assert.equal(h.schedule(0),true);
+    assert.equal(h.clock.next.ms,1000);
+    await h.clock.fire();await h.clock.fire();
+    assert.equal(h.calls.length,3);
+    assert.equal(h.errors.length,1);assert.equal(h.schedule(0),false);
+  }finally{h.player.destroy();}
+});
+
+test('sent, unknown and nonretryable failures are never retried and preserve duplicate protection',async()=>{
+  for(const response of [
+    {ok:false,retryable:true,inputSent:true,error:'Entrée envoyée'},
+    {ok:false,retryable:true,error:'État inconnu'},
+    {ok:false,retryable:false,inputSent:false,error:'Refus permanent'},
+  ]){
+    const h=freshHarness();try{
+      h.play=async()=>response;h.schedule(400);await h.clock.fire();
+      assert.equal(h.calls.length,1);assert.equal(h.clock.size,0);
+      assert.equal(h.errors.length,1);assert.equal(h.errors[0].response,response);
+      assert.equal(h.retries.length,0);assert.equal(h.schedule(400),false);
+    }finally{h.player.destroy();}
+  }
+});
+
+test('pause while waiting for a safe retry cancels it and an old timer callback stays inert',async()=>{
+  const h=freshHarness();try{
+    h.play=async()=>({ok:false,retryable:true,inputSent:false,error:'Attente'});
+    h.schedule(400);await h.clock.fire();
+    const late=h.clock.next.callback;
+    h.player.cancel();assert.equal(h.clock.size,0);
+    await late();assert.equal(h.calls.length,1);assert.equal(h.refreshes,1);
+    assert.equal(h.player.isPending(),false);assert.deepEqual(h.errors,[]);
+  }finally{h.player.destroy();}
 });

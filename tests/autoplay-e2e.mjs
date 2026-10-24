@@ -131,13 +131,57 @@ async function expectNoExtraPlays(count, duration = 1400) {
   assert.equal((await messages('CC_PLAY_CHESSCOM')).length, count, 'autoplay emits no duplicate or opponent action');
 }
 
+async function setFixtureHidden(hidden) {
+  const states = await background.evaluate(async ({ tabId, hidden }) => {
+    const states = [];
+    for (const world of ['MAIN', 'ISOLATED']) {
+      const [result] = await chrome.scripting.executeScript({
+        target: { tabId }, world, args: [hidden], func: (hidden) => {
+          if (hidden) {
+            Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => 'hidden' });
+            Object.defineProperty(document, 'hidden', { configurable: true, get: () => true });
+          } else {
+            delete document.visibilityState;
+            delete document.hidden;
+          }
+          document.dispatchEvent(new Event('visibilitychange'));
+          return { visibilityState: document.visibilityState, hidden: document.hidden };
+        },
+      });
+      states.push({ world, ...result.result });
+    }
+    return states;
+  }, { tabId, hidden });
+  for (const state of states) {
+    assert.equal(state.hidden, hidden, `${state.world} observes the fixture visibility state`);
+    assert.equal(state.visibilityState, hidden ? 'hidden' : 'visible');
+  }
+}
+
+async function expectFixtureHidden() {
+  const states = await background.evaluate(async (tabId) => Promise.all(['MAIN', 'ISOLATED'].map(async (world) => {
+    const [result] = await chrome.scripting.executeScript({ target: { tabId }, world,
+      func: () => ({ visibilityState: document.visibilityState, hidden: document.hidden }),
+    });
+    return { world, ...result.result };
+  })), tabId);
+  for (const state of states) assert.deepEqual(state, { world: state.world, visibilityState: 'hidden', hidden: true });
+}
+
 try {
   context = await chromium.launchPersistentContext(profile, {
     channel: 'chromium', headless: true, viewport: { width: 1440, height: 1200 },
     args: [`--disable-extensions-except=${extensionPath}`, `--load-extension=${extensionPath}`],
   });
-  await context.route('https://www.chess.com/**', async (route) => {
-    const pathname = new URL(route.request().url()).pathname;
+  await context.route('**/*', async (route) => {
+    const url = new URL(route.request().url());
+    if (!['http:', 'https:'].includes(url.protocol)) { await route.continue(); return; }
+    if (url.origin !== 'https://www.chess.com') {
+      failures.push(`Blocked unexpected external request: ${url.origin}`);
+      await route.abort();
+      return;
+    }
+    const pathname = url.pathname;
     routedRequests.push(pathname);
     let relative;
     if (pathname.startsWith('/__carlsenchess_test_fixture/')) relative = 'demo/chesscom.html';
@@ -242,30 +286,46 @@ try {
   assert.equal(await currentFen(), initialFen, 'pause cancels automatic moves while a real engine calculation is pending');
   steps.push('pause pendant un calcul Stockfish réel : aucun clic différé');
 
-  // Visibility is a browser state input. Override the fixture document only so
-  // this remains reproducible in headless Chromium where background tabs may
-  // remain visible to the Page Visibility API.
+  // Override the fixture document in both script worlds. This verifies the
+  // hidden-document contract without opening or contacting an online game.
+  // It does not emulate operating-system sleep or Chrome's tab-discard policy.
+  // This is an independent game: a fresh board node also gives MAIN's
+  // once-per-position input lock a fresh owner after the fixture reset.
+  await page.locator('#replace-board').click();
+  await host.locator('#cc-time').selectOption('400');
+  await setFixtureHidden(true);
+  assert.equal(await host.locator('#cc-autoplay').isChecked(), true, 'hiding the fixture never changes the explicit autoplay choice');
   count = (await messages('CC_ANALYZE')).length;
   await start();
   await waitForAnalysis(initialFen, count);
-  await background.evaluate((tabId) => chrome.scripting.executeScript({
-    target: { tabId }, world: 'ISOLATED', func: () => {
-      Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => 'hidden' });
-      Object.defineProperty(document, 'hidden', { configurable: true, get: () => true });
-      document.dispatchEvent(new Event('visibilitychange'));
-    },
-  }), tabId);
-  await expectNoExtraPlays(3, 3300);
-  assert.equal(await currentFen(), initialFen, 'hidden fixture state prevents an automatic move');
-  await background.evaluate((tabId) => chrome.scripting.executeScript({
-    target: { tabId }, world: 'ISOLATED', func: () => {
-      delete document.visibilityState;
-      delete document.hidden;
-      document.dispatchEvent(new Event('visibilitychange'));
-    },
-  }), tabId);
+  plays = await waitForPlays(4);
+  await waitFor(async () => (await currentFen()).split(' ')[1] === 'b', 'an automatic white move succeeds while the fixture remains hidden');
+  assert.equal(plays[3].fen, initialFen);
+  assert.equal(plays[3].playerColor, 'w');
+  assert.equal(await host.locator('#cc-autoplay').isChecked(), true);
+  await expectFixtureHidden();
+  await expectNoExtraPlays(4, 700);
+  const afterHiddenBlack = await playFirstLegalMove();
+  plays = await waitForPlays(5);
+  await waitFor(async () => (await currentFen()).split(' ')[1] === 'b', 'hidden autoplay responds to a manual opponent move');
+  assert.equal(plays[4].fen, afterHiddenBlack);
+  assert.equal(plays[4].playerColor, 'w');
+  assert.equal(await host.locator('#cc-autoplay').isChecked(), true, 'the autoplay switch stays checked after hidden opponent-response processing');
+  await expectFixtureHidden();
+  await expectNoExtraPlays(5, 700);
+
+  await host.locator('#cc-time').selectOption('2500');
+  count = (await messages('CC_ANALYZE')).length;
+  const hiddenPendingFen = await playFirstLegalMove();
+  await waitForAnalysis(hiddenPendingFen, count);
   await pause();
-  steps.push('document masqué pendant un calcul : aucun coup automatique');
+  await expectNoExtraPlays(5, 3300);
+  assert.equal(await currentFen(), hiddenPendingFen, 'pause still cancels a pending move in a hidden document');
+  assert.equal(await host.locator('#cc-autoplay').isChecked(), true, 'pause retains the explicit autoplay choice');
+  await expectFixtureHidden();
+  await setFixtureHidden(false);
+  steps.push('documents MAIN et ISOLATED masqués : deux coups propres avec réponse adverse, activation conservée ; pause annule toujours le coup suivant');
+  const beforeReloadPlays = (await messages('CC_PLAY_CHESSCOM')).length;
 
   await page.reload();
   await page.locator('#board-analysis-board .piece').first().waitFor();
@@ -275,7 +335,7 @@ try {
   await host.locator('#cc-time').selectOption('400');
   await start();
   await host.locator('[data-ref="badge"][data-state="ready"]').waitFor({ timeout: 60000 });
-  await expectNoExtraPlays(3, 700);
+  await expectNoExtraPlays(beforeReloadPlays, 700);
   assert.equal(await currentFen(), initialFen);
   await pause();
   steps.push('rechargement : activation automatique oubliée, démarrage de l’analyse sans jouer');
@@ -293,19 +353,19 @@ try {
   assert.match(adaptiveReaction.text, /attente de \d+[,.]\d\s*s/i, 'the estimated remaining wait is visible');
   assert.ok(adaptiveReaction.targetMs >= 3000, `the complex position has a meaningful reaction target (${adaptiveReaction.targetMs} ms)`);
   assert.ok(adaptiveReaction.waitMs > 800, `complex positions wait after analysis (${adaptiveReaction.waitMs} ms)`);
-  await expectNoExtraPlays(3, 650);
+  await expectNoExtraPlays(beforeReloadPlays, 650);
   assert.equal(await currentFen(), complexFen, 'no move occurs immediately after the complex calculation finishes');
   await pause();
-  await expectNoExtraPlays(3, 250);
+  await expectNoExtraPlays(beforeReloadPlays, 250);
   assert.equal(await host.locator('[data-ref="status"]').getAttribute('data-reaction-wait-ms'), null, 'pause clears the displayed pending delay');
   reactionTimings.push({ mode: 'adaptive-paused', ...adaptiveReaction });
 
   statusCount = (await reactionStatuses()).length;
   await start();
   adaptiveReaction = await waitForReaction(statusCount);
-  await expectNoExtraPlays(3, 650);
+  await expectNoExtraPlays(beforeReloadPlays, 650);
   await host.locator('#cc-player-color').selectOption('b');
-  await expectNoExtraPlays(3, 800);
+  await expectNoExtraPlays(beforeReloadPlays, 800);
   assert.equal(await currentFen(), complexFen, 'changing camp cancels the pending adaptive move');
   await pause();
   reactionTimings.push({ mode: 'adaptive-side-changed', ...adaptiveReaction });
@@ -315,18 +375,64 @@ try {
   await start();
   adaptiveReaction = await waitForReaction(statusCount);
   const adaptiveAnalysis = (await messages('CC_ANALYZE')).at(-1);
-  plays = await waitForPlays(4);
-  const adaptivePlay = plays[3];
+  plays = await waitForPlays(beforeReloadPlays + 1);
+  const adaptivePlay = plays[beforeReloadPlays];
   const adaptiveObservedWait = adaptivePlay.at - adaptiveReaction.at;
   assert.equal(adaptivePlay.fen, complexFen);
   assert.ok(adaptiveObservedWait >= adaptiveReaction.waitMs - 100, `adaptive play respects its displayed post-calculation delay (${adaptiveObservedWait} ms)`);
   assert.ok(adaptiveObservedWait <= adaptiveReaction.waitMs + 1800, 'the displayed reaction delay stays consistent with execution');
   assert.ok(adaptivePlay.at - adaptiveAnalysis.at >= adaptiveReaction.targetMs - 250, 'the reaction target includes engine computation time');
   await waitFor(async () => (await currentFen()).split(' ')[1] === 'b', 'the adaptive move is reflected by the fixture');
-  await expectNoExtraPlays(4, 500);
+  await expectNoExtraPlays(beforeReloadPlays + 1, 500);
   await pause();
   reactionTimings.push({ mode: 'adaptive-executed', ...adaptiveReaction, observedWaitMs: adaptiveObservedWait, analysisToPlayMs: adaptivePlay.at - adaptiveAnalysis.at });
   steps.push('réaction adaptative activée par défaut et enregistrée ; attente complexe affichée et respectée, annulée par pause et changement de camp ; mode rapide à 400 ms');
+
+  await host.locator('#cc-reaction-timing').uncheck();
+  await loadFen(initialFen);
+  await page.evaluate(() => {
+    window.__ccRejectedClicks = 0;
+    window.__ccRejectMove = (event) => {
+      window.__ccRejectedClicks += 1;
+      event.preventDefault();
+      event.stopImmediatePropagation();
+    };
+    document.querySelector('#board-analysis-board').addEventListener('click', window.__ccRejectMove, { capture: true });
+  });
+  const beforeRejectedPlays = (await messages('CC_PLAY_CHESSCOM')).length;
+  await start();
+  await waitForPlays(beforeRejectedPlays + 1);
+  await host.locator('[data-ref="status"]').filter({ hasText: /suspendu/i }).waitFor({ timeout: 10000 });
+  assert.ok(await page.evaluate(() => window.__ccRejectedClicks >= 2), 'the fixture rejected real source and destination click events');
+  assert.equal(await currentFen(), initialFen, 'a rejected site move leaves the exact full FEN unchanged');
+  assert.equal(await host.locator('#cc-autoplay').isChecked(), true, 'a site rejection suspends play without silently changing the autoplay switch');
+  const expiredCacheState = await background.evaluate(async (tabId) => {
+    const [result] = await chrome.scripting.executeScript({ target: { tabId }, world: 'ISOLATED', func: () => {
+      const originalNow = Date.now;
+      try {
+        Date.now = () => originalNow() + 10000;
+        document.dispatchEvent(new Event('visibilitychange'));
+        // Read synchronously, before the fresh asynchronous MAIN response.
+        const root = document.querySelector('#carlsenchess-root').shadowRoot;
+        return { status: root.querySelector('[data-ref="status"]').textContent,
+          autoplay: root.querySelector('#cc-autoplay').checked };
+      } finally { Date.now = originalNow; }
+    } });
+    return result.result;
+  }, tabId);
+  assert.match(expiredCacheState.status, /suspendu/i, 'an expired position cache preserves the rejection status before the fresh page response');
+  assert.equal(expiredCacheState.autoplay, true);
+  assert.equal((await messages('CC_PLAY_CHESSCOM')).length, beforeRejectedPlays + 1, 'cache expiry emits no additional input');
+  count = (await messages('CC_ANALYZE')).length;
+  await host.getByRole('button', { name: 'Réanalyser la position', exact: true }).click();
+  await expectNoExtraPlays(beforeRejectedPlays + 1, 1700);
+  assert.equal((await messages('CC_ANALYZE')).length, count, 'refresh retains the suspension instead of recalculating the rejected full position');
+  assert.match(await host.locator('[data-ref="status"]').innerText(), /suspendu/i);
+  assert.equal(await host.locator('#cc-autoplay').isChecked(), true);
+  assert.equal(await currentFen(), initialFen, 'reanalysis never resubmits input on the rejected full position');
+  await pause();
+  await page.evaluate(() => document.querySelector('#board-analysis-board').removeEventListener('click', window.__ccRejectMove, { capture: true }));
+  steps.push('coup rejeté après deux clics : statut suspendu et activation conservée ; aucun nouvel essai sur la même FEN après réanalyse');
 
   await page.screenshot({ path: path.join(resultsPath, 'CarlsenChess-autoplay-fixture.png'), fullPage: true });
   assert.deepEqual(failures, [], 'browser console and page errors');

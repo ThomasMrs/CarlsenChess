@@ -29,7 +29,7 @@ export function createPanel(root, { autoplaySupported = false } = {}) {
         <label class="cc-toggle" for="cc-humanize"><span><span class="cc-toggle-title">Humaniser les choix</span><span class="cc-help">Varie parmi les bons coups proches.</span></span><input id="cc-humanize" data-setting="humanize" type="checkbox"><span class="cc-switch" aria-hidden="true"></span></label>
         <label class="cc-toggle" for="cc-autoplay"><span><span class="cc-toggle-title">Jeu automatique</span><span class="cc-help">Joue pour la couleur choisie.</span></span><input id="cc-autoplay" data-setting="autoplay" type="checkbox" ${autoplaySupported ? '' : 'disabled'}><span class="cc-switch" aria-hidden="true"></span></label>
         <div class="cc-field cc-inline-field"><label for="cc-player-color">Couleur jouée</label><select id="cc-player-color" data-setting="playerColor" ${autoplaySupported ? '' : 'disabled'}><option value="w">Blancs</option><option value="b">Noirs</option></select></div>
-        <p class="cc-help cc-auto-note" data-ref="autoplayNote">${autoplaySupported ? 'Désactivé à chaque ouverture. S’arrête en pause ou si l’onglet est masqué. Détection toujours possible.' : 'Jeu automatique disponible sur Chess.com.'}</p>
+        <p class="cc-help cc-auto-note" data-ref="autoplayNote">${autoplaySupported ? 'Continue sur un autre onglet si la partie reste ouverte. Pause pour arrêter. Réactivation après rechargement.' : 'Jeu automatique disponible sur Chess.com.'}</p>
         <label class="cc-toggle" for="cc-reaction-timing"><span><span class="cc-toggle-title">Réaction selon la difficulté</span><span class="cc-help">Cible de 0,9 à 10 s, calcul inclus.</span></span><input id="cc-reaction-timing" data-setting="reactionTiming" type="checkbox" checked ${autoplaySupported ? '' : 'disabled'}><span class="cc-switch" aria-hidden="true"></span></label>
         <div class="cc-field cc-inline-field"><label for="cc-time">Temps d’analyse</label><select id="cc-time" data-setting="movetime"><option value="400">Rapide · 0,4 s</option><option value="1200">Équilibré · 1,2 s</option><option value="2500">Approfondi · 2,5 s</option></select></div>
         <details class="cc-advanced" data-ref="advanced"><summary>Connexion au plateau<svg viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="m5 6 3 3 3-3" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg></summary><div class="cc-advanced-body">
@@ -41,7 +41,7 @@ export function createPanel(root, { autoplaySupported = false } = {}) {
         </div></details>
         <div class="cc-engine" data-ref="engine">Stockfish · calcul sur cet appareil</div>
       </div>
-      <footer class="cc-footer"><span>© 2026 Thomas Marsa</span><span>v1.3</span></footer>
+      <footer class="cc-footer"><span>© 2026 Thomas Marsa</span><span>v1.4</span></footer>
     </section>`;
   root.append(container);
   const refs = Object.fromEntries([...container.querySelectorAll('[data-ref]')].map(el => [el.dataset.ref, el]));

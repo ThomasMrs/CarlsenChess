@@ -95,8 +95,8 @@ chrome.runtime.onMessage.addListener((message, sender, reply) => {
       if (!contexts.length) return { ok: true };
     } else {
       await ensureOffscreen();
-      if (tabGenerations.get(tabId) !== generation) return { ok: false, cancelled: true, error: 'Analyse remplacée.' };
     }
+    if (tabGenerations.get(tabId) !== generation) return { ok: false, cancelled: true, error: 'Analyse remplacée.' };
     return chrome.runtime.sendMessage({
       type: message.type === 'CC_STOP' ? 'CC_ENGINE_STOP' : 'CC_ENGINE_ANALYZE',
       tabId, requestId: message.requestId,

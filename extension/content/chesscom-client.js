@@ -14,7 +14,8 @@ export function createChessComReader({ getBoard, getSelector, onChange,
   let destroyed = false;
   let generation = 0;
   let timer;
-  let inFlight = false;
+  let inFlight = null;
+  let refreshing = null;
   let cached = null;
   let lastError = 'Lecture de la position Chess.com…';
 
@@ -29,8 +30,7 @@ export function createChessComReader({ getBoard, getSelector, onChange,
     if (board?.id && globalThis.CSS?.escape) return `#${CSS.escape(board.id)}`;
     return '';
   }
-  async function tick() {
-    if (!active || destroyed || inFlight) return;
+  async function readSnapshot() {
     const epoch = generation;
     const board = getBoard?.();
     const selector = getSelector?.() || '';
@@ -39,10 +39,8 @@ export function createChessComReader({ getBoard, getSelector, onChange,
       cached = null;
       lastError = 'Plateau Chess.com introuvable. Ouvrez une partie ou une analyse.';
       notify();
-      schedule();
       return;
     }
-    inFlight = true;
     try {
       const result = await send({ type: 'CC_READ_CHESSCOM', boardSelector: selectorFor(board) });
       if (!active || destroyed || epoch !== generation || url !== getUrl()
@@ -64,10 +62,15 @@ export function createChessComReader({ getBoard, getSelector, onChange,
         lastError = error?.message || 'Lecture Chess.com indisponible. Rechargez l’extension et la page.';
         notify();
       }
-    } finally {
-      inFlight = false;
-      schedule();
     }
+  }
+  async function tick() {
+    if (!active || destroyed) return;
+    if (inFlight) return inFlight;
+    const task = readSnapshot();
+    inFlight = task;
+    try { await task; }
+    finally { if (inFlight === task) inFlight = null; schedule(); }
   }
   return {
     setActive(value) {
@@ -88,6 +91,17 @@ export function createChessComReader({ getBoard, getSelector, onChange,
       return current
         ? { ...base, fen: cached.fen, source: 'Chess.com · position du jeu', error: null }
         : { ...base, fen: null, source: 'Chess.com', error: lastError || 'Synchronisation du plateau Chess.com…' };
+    },
+    readNow() {
+      // A background timer may wake after the cache expired. Obtain a new
+      // document-bound snapshot instead of trusting or extending old state.
+      if (refreshing) return refreshing;
+      refreshing = (async () => {
+        clearTimeout(timer);
+        if (inFlight) await inFlight;
+        if (active && !destroyed) await tick();
+      })().finally(() => { refreshing = null; });
+      return refreshing;
     },
     refresh() {
       // Selector, document or board changes cannot reuse an old response.

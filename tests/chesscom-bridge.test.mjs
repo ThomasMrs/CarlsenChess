@@ -235,6 +235,19 @@ test('cosmetic board and piece animations do not block a stable placement', () =
   assert.equal(readChessComPlacement(element), START_FEN.split(' ')[0]);
 });
 
+test('a hidden document can read exact piece classes despite suspended visual animation', () => {
+  const document = page();
+  const element = board(document);
+  Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => 'hidden' });
+  element.getAnimations = () => [animation(element.querySelector('.piece'))];
+  assert.equal(readChessComPlacement(element), START_FEN.split(' ')[0]);
+  assert.equal(snapshot().fen, START_FEN);
+  element.querySelector('.wp.square-52').classList.replace('square-52', 'square-54');
+  assert.equal(snapshot().ok, false, 'a hidden page still needs exact API/DOM correlation');
+  element.style.display = 'none';
+  assert.equal(snapshot().ok, false, 'a CSS-hidden board is still excluded');
+});
+
 test('a complete API FEN without DOM pieces cannot pass the correlation guard', () => {
   const document = page();
   const element = board(document);

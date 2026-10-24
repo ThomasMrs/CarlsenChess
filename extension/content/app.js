@@ -47,7 +47,7 @@ export function mount() {
   const ui = createPanel(root, { autoplaySupported: isChessComPage() });
   const overlay = createOverlay(root);
   document.documentElement.append(host);
-  const state = { settings: { ...DEFAULTS }, stored: {}, running: false, visible: true, collapsed: false, loading: false, position: null, fingerprint: '', positionStartedAt: 0, token: 0, timer: null, frame: null, manualFen: '', destroyed: false, board: null, storageQueue: Promise.resolve() };
+  const state = { settings: { ...DEFAULTS }, stored: {}, running: false, visible: true, collapsed: false, loading: false, position: null, autoError: null, fingerprint: '', positionStartedAt: 0, token: 0, timer: null, frame: null, manualFen: '', destroyed: false, board: null, storageQueue: Promise.resolve() };
   const chesscomReader = isChessComPage() ? createChessComReader({
     getBoard: () => findBoard({ boardSelector: state.settings.boardSelector }),
     getSelector: () => state.settings.boardSelector,
@@ -58,18 +58,19 @@ export function mount() {
     getState: () => {
       const position = snapshot();
       return { ...position, enabled: state.running && state.settings.autoplay && !!chesscomReader,
-        visible: document.visibilityState !== 'hidden', manual: state.settings.manualMode,
+        manual: state.settings.manualMode,
         playerColor: state.settings.playerColor, boardSelector: state.settings.boardSelector,
         orientation: orientation(position) };
     },
     authorize: token => token ? host.setAttribute('data-cc-play-token', token) : host.removeAttribute('data-cc-play-token'),
+    refresh: () => chesscomReader?.readNow(),
     play: ({ board, ...request }) => chrome.runtime.sendMessage({ type: 'CC_PLAY_CHESSCOM', ...request }),
     onPending: () => setStatus(ui, 'Jeu automatique : exécution du coup…', 'loading'),
-    onError: error => {
-      state.settings.autoplay = false;
-      ui.controls.autoplay.checked = false;
-      autoPlayer.cancel();
-      setStatus(ui, `${error} Jeu automatique arrêté.`, 'error');
+    onStale: () => { state.fingerprint = ''; queueMicrotask(() => observePosition()); },
+    onRetry: () => setStatus(ui, 'Synchronisation du plateau avant le coup automatique…', 'waiting'),
+    onError: (error, response, ticket) => {
+      state.autoError = { fen: ticket.fen, board: ticket.board, error };
+      showAutoError();
     },
   });
 
@@ -131,15 +132,31 @@ export function mount() {
     try { validateFen(position.fen); } catch (error) { setStatus(ui, error.message, 'error'); return true; }
     return false;
   }
+  function showAutoError() {
+    setStatus(ui, `Jeu automatique suspendu pour cette position : ${state.autoError.error} Jouez ce coup manuellement pour reprendre.`, 'error');
+  }
   function observePosition(force = false, immediate = false) {
     if (!state.running || state.destroyed) return;
     const next = snapshot();
     autoPlayer.observe(next.fen, next.board);
     watchBoard(next.board);
+    if (state.settings.autoplay && state.autoError && !next.fen && next.board === state.autoError.board) {
+      showAutoError();
+      return;
+    }
+    // Background timers can outlive the short FEN cache. Keep the queued
+    // calculation/reaction; a fresh MAIN read is required before any input.
+    if (!force && !next.fen && next.board && next.board === state.position?.board
+      && (state.loading || autoPlayer.isPending())) return;
     const nextKey = positionKey(next);
     const changed = nextKey !== state.fingerprint || next.board !== state.position?.board;
     state.position = next;
     updateSource(next);
+    if (state.autoError && next.fen && (next.fen !== state.autoError.fen || next.board !== state.autoError.board)) state.autoError = null;
+    if (state.settings.autoplay && state.autoError && next.fen === state.autoError.fen && next.board === state.autoError.board) {
+      showAutoError();
+      return;
+    }
     if (!force && !changed) { scheduleReflow(); return; }
     state.positionStartedAt = performance.now();
     state.fingerprint = nextKey;
@@ -166,6 +183,8 @@ export function mount() {
     try {
       const requestId = typeof crypto.randomUUID === 'function' ? crypto.randomUUID() : `${Date.now()}-${token}`;
       const response = await chrome.runtime.sendMessage({ type: 'CC_ANALYZE', requestId, fen: position.fen, settings: { elo: state.settings.strength, humanize: state.settings.humanize, movetime: state.settings.movetime } });
+      if (token !== state.token || !state.running || state.destroyed) return;
+      if (chesscomReader && !state.settings.manualMode) await chesscomReader.readNow();
       if (token !== state.token || !state.running || state.destroyed) return;
       // The page may have moved while the worker was responding, before its observer ran.
       const current = snapshot();
@@ -263,10 +282,10 @@ export function mount() {
     state.settings = normalizeSettings(state.settings);
     if (key === 'autoplay') {
       autoPlayer.reset();
-      if (!chesscomReader || state.settings.manualMode || document.visibilityState === 'hidden') {
+      if (!chesscomReader || state.settings.manualMode) {
         state.settings.autoplay = false;
         c.autoplay.checked = false;
-        setStatus(ui, 'Le jeu automatique nécessite le plateau Chess.com visible et la lecture automatique de la position.', 'waiting');
+        setStatus(ui, 'Le jeu automatique nécessite un plateau Chess.com ouvert et la lecture automatique de la position.', 'waiting');
         return;
       }
     }
@@ -307,15 +326,10 @@ export function mount() {
   window.addEventListener('scroll', scheduleReflow, { passive: true, capture: true });
   root.addEventListener('keydown', onEscape);
   const onVisibility = () => {
-    if (document.visibilityState !== 'hidden') {
-      if (state.running) observePosition(true);
-      return;
-    }
-    if (!state.settings.autoplay) return;
-    state.settings.autoplay = false;
-    ui.controls.autoplay.checked = false;
-    autoPlayer.cancel();
-    setStatus(ui, 'Jeu automatique arrêté : onglet masqué.', 'idle');
+    if (!state.running) return;
+    // Switching tabs never revokes the user's activation or resets a reaction.
+    chesscomReader?.readNow().catch(() => {});
+    observePosition();
   };
   document.addEventListener('visibilitychange', onVisibility);
 
