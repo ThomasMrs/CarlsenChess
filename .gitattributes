@@ -1,0 +1,5 @@
+extension/engine/** linguist-vendored
+extension/vendor/** linguist-vendored
+extension/licenses/** linguist-vendored
+vendor-source/** linguist-vendored
+.github/assets/** linguist-documentation

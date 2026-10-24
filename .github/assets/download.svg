@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="290" height="52" viewBox="0 0 290 52" role="img" aria-labelledby="title">
+  <title id="title">Télécharger pour Chrome</title>
+  <rect x=".5" y=".5" width="289" height="51" rx="8" fill="#dfa96f" stroke="#efc491"/>
+  <g fill="none" stroke="#151c18" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M28 15v15m-5-5 5 5 5-5m-13 8v5h16v-5"/>
+  </g>
+  <text x="51" y="32" fill="#151c18" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',Arial,sans-serif" font-size="17" font-weight="600">Télécharger pour Chrome</text>
+</svg>

@@ -1,0 +1,92 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="480" viewBox="0 0 1280 480" fill="none" role="img" aria-labelledby="title description">
+  <title id="title">CarlsenChess — Voyez le jeu, un coup plus loin.</title>
+  <desc id="description">Bannière de CarlsenChess, assistant d’échecs pour Chrome avec Stockfish 19 et calcul local. À droite, un échiquier vectoriel montre le développement légal du cavalier blanc de g1 vers f3.</desc>
+  <defs>
+    <pattern id="board-squares" width="84" height="84" patternUnits="userSpaceOnUse">
+      <rect width="84" height="84" fill="#bfc2a9"/>
+      <path d="M42 0H84V42H42ZM0 42H42V84H0Z" fill="#324b3b"/>
+    </pattern>
+    <marker id="move-tip" viewBox="0 0 12 12" refX="9" refY="6" markerWidth="3.2" markerHeight="3.2" orient="auto" markerUnits="strokeWidth">
+      <path d="M0 0 12 6 0 12Z" fill="#dfa96f"/>
+    </marker>
+    <g id="pawn" stroke-linejoin="round" stroke-width="1.4">
+      <circle cx="20" cy="10.5" r="5.5"/>
+      <path d="M16 17H24L22.5 22 27 29H13L17.5 22Z"/>
+      <path d="M12 29H28V34H12Z"/>
+    </g>
+    <g id="rook" stroke-linejoin="round" stroke-width="1.4">
+      <path d="M10 5H15V10H18V5H22V10H25V5H30V15L26 18 27 29H13L14 18 10 15Z"/>
+      <path d="M11 29H29V34H11Z"/>
+    </g>
+    <g id="knight" stroke-linejoin="round" stroke-width="1.4">
+      <path d="M13 7 22 3 23 9 31 17 28 25H19L15 29H29V34H10V29L17 18 10 21 6 17 13 8Z"/>
+      <path d="M20.3 12.5H20.4" fill="none" stroke-width="3" stroke-linecap="round"/>
+    </g>
+    <g id="bishop" stroke-linejoin="round" stroke-width="1.4">
+      <path d="M20 4C29 11 31 17 24 22L27 29H13L16 22C9 17 11 11 20 4Z"/>
+      <path d="M21 9 17 17" fill="none" stroke-width="2"/>
+      <path d="M11 29H29V34H11Z"/>
+    </g>
+    <g id="queen" stroke-linejoin="round" stroke-width="1.4">
+      <path d="M9 10 16 15 20 7 24 15 31 10 27 26H13Z"/>
+      <circle cx="8.5" cy="8" r="2.7"/><circle cx="20" cy="4.5" r="2.7"/><circle cx="31.5" cy="8" r="2.7"/>
+      <path d="M13 26H27V29H13ZM11 29H29V34H11Z"/>
+    </g>
+    <g id="king" stroke-linejoin="round" stroke-width="1.4">
+      <path d="M18 3H22V7H26V11H22V15H18V11H14V7H18Z"/>
+      <path d="M12 16C14 13 17 14 20 17 23 14 26 13 28 16 31 20 25 24 25 28H15C15 24 9 20 12 16Z"/>
+      <path d="M11 29H29V34H11Z"/>
+    </g>
+    <style>
+      .sans { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif; }
+      .serif { font-family: Georgia, 'Times New Roman', serif; }
+      .ivory { fill: #ecebd6; }
+      .copper { fill: #dfa96f; }
+      .white-piece { fill: #f4f0dc; stroke: #26382c; }
+      .black-piece { fill: #182b20; stroke: #a6b49b; }
+    </style>
+  </defs>
+  <rect x=".5" y=".5" width="1279" height="479" rx="24" fill="#151c18" stroke="#354638"/>
+  <path d="M72 50H1208" stroke="#384637"/>
+  <path d="M72 50H135" stroke="#dfa96f" stroke-width="3"/>
+  <text x="72" y="171" class="serif ivory" font-size="82" letter-spacing="-3">CarlsenChess</text>
+  <text x="76" y="238" class="sans ivory" font-size="37" font-weight="400" letter-spacing="-.8">
+    <tspan x="76">Voyez le jeu,</tspan>
+    <tspan x="76" dy="48">un coup plus loin.</tspan>
+  </text>
+  <g class="sans" font-size="20" font-weight="500">
+    <rect x="76" y="344" width="184" height="46" rx="23" fill="#26382a" stroke="#617354"/>
+    <path d="M97 358V376M104 362V372M111 355V379" stroke="#dfa96f" stroke-width="2.5" stroke-linecap="round"/>
+    <text x="124" y="374" class="ivory">Stockfish 19</text>
+    <rect x="272" y="344" width="133" height="46" rx="23" stroke="#5a6656"/>
+    <circle cx="296" cy="367" r="8" stroke="#dfa96f" stroke-width="2"/>
+    <circle cx="296" cy="367" r="3" fill="#dfa96f"/>
+    <text x="312" y="374" class="ivory">Chrome</text>
+    <rect x="417" y="344" width="160" height="46" rx="23" stroke="#5a6656"/>
+    <rect x="436" y="359" width="15" height="12" rx="2" stroke="#dfa96f" stroke-width="1.8"/>
+    <path d="M440 376H447M443.5 371V376" stroke="#dfa96f" stroke-width="1.8" stroke-linecap="round"/>
+    <text x="462" y="374" class="ivory">Calcul local</text>
+  </g>
+  <path d="M690 96V384" stroke="#354638"/>
+  <path d="M790 72H808M790 72V90M1190 72H1172M1190 72V90M790 424H808M790 424V406M1190 424H1172M1190 424V406" stroke="#dfa96f" stroke-width="2"/>
+  <rect x="808" y="80" width="364" height="364" rx="7" fill="#1e2b21" stroke="#58674c"/>
+  <g transform="translate(822 94)">
+    <rect width="336" height="336" fill="url(#board-squares)"/>
+    <g class="black-piece">
+      <use href="#rook" x="1" y="1"/><use href="#knight" x="43" y="1"/><use href="#bishop" x="85" y="1"/><use href="#queen" x="127" y="1"/>
+      <use href="#king" x="169" y="1"/><use href="#bishop" x="211" y="1"/><use href="#knight" x="253" y="1"/><use href="#rook" x="295" y="1"/>
+      <use href="#pawn" x="1" y="43"/><use href="#pawn" x="43" y="43"/><use href="#pawn" x="85" y="43"/><use href="#pawn" x="127" y="43"/>
+      <use href="#pawn" x="169" y="43"/><use href="#pawn" x="211" y="43"/><use href="#pawn" x="253" y="43"/><use href="#pawn" x="295" y="43"/>
+    </g>
+    <g class="white-piece">
+      <use href="#pawn" x="1" y="253"/><use href="#pawn" x="43" y="253"/><use href="#pawn" x="85" y="253"/><use href="#pawn" x="127" y="253"/>
+      <use href="#pawn" x="169" y="253"/><use href="#pawn" x="211" y="253"/><use href="#pawn" x="253" y="253"/><use href="#pawn" x="295" y="253"/>
+      <use href="#rook" x="1" y="295"/><use href="#knight" x="43" y="295"/><use href="#bishop" x="85" y="295"/><use href="#queen" x="127" y="295"/>
+      <use href="#king" x="169" y="295"/><use href="#bishop" x="211" y="295"/><use href="#knight" x="253" y="295"/><use href="#rook" x="295" y="295"/>
+    </g>
+    <rect x="254" y="296" width="38" height="38" rx="3" fill="#dfa96f" fill-opacity=".2" stroke="#dfa96f" stroke-width="2"/>
+    <rect x="212" y="212" width="38" height="38" rx="3" fill="#dfa96f" fill-opacity=".32" stroke="#f1c796" stroke-width="2"/>
+    <path d="M273 315 235 239" stroke="#dfa96f" stroke-width="8" stroke-linecap="round" marker-end="url(#move-tip)"/>
+    <circle cx="273" cy="315" r="5" fill="#f3c696"/>
+  </g>
+</svg>

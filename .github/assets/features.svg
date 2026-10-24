@@ -1,0 +1,52 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="240" viewBox="0 0 1280 240" fill="none" role="img" aria-labelledby="title description">
+  <title id="title">CarlsenChess : guidage visuel, force au choix, calcul local</title>
+  <desc id="description">Une flèche indique le coup sur le plateau. Choisissez une force de 500 à 3000 Elo indicatifs ou la puissance maximale. Stockfish 19 calcule sur votre appareil.</desc>
+  <defs>
+    <style>
+      .sans { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif; }
+      .serif { font-family: Georgia, 'Times New Roman', serif; }
+    </style>
+    <marker id="feature-arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="2.6" markerHeight="2.6" orient="auto">
+      <path d="M0 0 10 5 0 10Z" fill="#dfa96f"/>
+    </marker>
+  </defs>
+  <g fill="#151c18" stroke="#354638">
+    <rect x=".5" y=".5" width="411" height="239" rx="16"/>
+    <rect x="434.5" y=".5" width="411" height="239" rx="16"/>
+    <rect x="868.5" y=".5" width="411" height="239" rx="16"/>
+  </g>
+  <g transform="translate(32 28)" stroke="#dfa96f" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+    <rect x="0" y="0" width="42" height="42" rx="3" fill="#273b2c"/>
+    <path d="M14 0V42M28 0V42M0 14H42M0 28H42" stroke="#738162"/>
+    <path d="M8 34 31 11" stroke-width="3.5" marker-end="url(#feature-arrow)"/>
+  </g>
+  <g transform="translate(466 28)" stroke="#dfa96f" stroke-width="2" stroke-linecap="round">
+    <path d="M0 9H42M0 23H42M0 37H42"/>
+    <rect x="9" y="4" width="6" height="10" rx="2" fill="#dfa96f" stroke="#151c18"/>
+    <rect x="28" y="18" width="6" height="10" rx="2" fill="#dfa96f" stroke="#151c18"/>
+    <rect x="17" y="32" width="6" height="10" rx="2" fill="#dfa96f" stroke="#151c18"/>
+  </g>
+  <g transform="translate(900 28)" stroke="#dfa96f" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+    <rect x="0" y="1" width="44" height="29" rx="4" fill="#273b2c"/>
+    <path d="M15 40H29M22 31V40"/>
+    <path d="m15 15 5 5 10-11" stroke-width="2.5"/>
+  </g>
+  <g class="sans" font-size="19" font-weight="500" letter-spacing="1.4" fill="#c6cbb7">
+    <text x="92" y="55">GUIDAGE VISUEL</text>
+    <text x="526" y="55">FORCE AU CHOIX</text>
+    <text x="960" y="55">CALCUL LOCAL</text>
+  </g>
+  <g class="serif" font-size="37" letter-spacing="-.6" fill="#ecebd6">
+    <text x="32" y="126">La flèche,</text>
+    <text x="32" y="169">sur le plateau.</text>
+    <text x="466" y="126">500–3000 Elo</text>
+    <text x="900" y="126">Sur votre</text>
+    <text x="900" y="169">appareil.</text>
+  </g>
+  <g class="sans" fill="#c6cbb7" font-size="22">
+    <text x="32" y="211">Le coup devient visible.</text>
+    <text x="466" y="169" fill="#dfa96f" font-size="26">+ puissance maximale</text>
+    <text x="466" y="211">Niveaux Elo indicatifs.</text>
+    <text x="900" y="211">Stockfish 19, en local.</text>
+  </g>
+</svg>
